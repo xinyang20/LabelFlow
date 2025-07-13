@@ -230,7 +230,9 @@ uv.lock
 build_spec.py
 build.bat
 pyproject.toml
-QuickLabel.exe
+
+# windows application
+*.exe
 
 # history files
 **/.history/

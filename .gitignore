@@ -205,3 +205,32 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# build files
+**/build/*
+**/dist/*
+**/*.spec
+test/
+
+# uv files
+uv.lock
+.python-version
+build_spec.py
+build.bat
+pyproject.toml
+QuickLabel.exe
+
+# history files
+**/.history/

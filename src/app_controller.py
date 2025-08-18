@@ -5,7 +5,7 @@ Quick Label - 快捷图片标注工具 - 应用控制器
 """
 
 from PyQt6.QtCore import QObject, QTimer
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from ui_mainwindow import MainWindow
 from data_manager import DataManager
 
@@ -19,6 +19,7 @@ class AppController(QObject):
         self.data_manager = DataManager()
         self.auto_save_timer = QTimer()
         self.current_annotation = ""
+        self.auto_save_enabled = True  # 默认开启自动保存
         
         self.setup_connections()
         self.setup_auto_save()
@@ -27,6 +28,8 @@ class AppController(QObject):
         """设置信号连接"""
         # UI信号连接
         self.main_window.directory_selected.connect(self.on_directory_selected)
+        self.main_window.save_path_selected.connect(self.on_save_path_selected)
+        self.main_window.auto_save_changed.connect(self.on_auto_save_changed)
         self.main_window.next_image.connect(self.on_next_image)
         self.main_window.prev_image.connect(self.on_prev_image)
         self.main_window.annotation_changed.connect(self.on_annotation_changed)
@@ -52,6 +55,14 @@ class AppController(QObject):
         """处理目录选择"""
         self.main_window.show_loading_progress(True, 0, 100, "正在扫描目录...")
         self.data_manager.set_work_directory(directory)
+
+    def on_save_path_selected(self, path: str):
+        """处理保存路径选择"""
+        self.data_manager.set_custom_save_path(path)
+
+    def on_auto_save_changed(self, enabled: bool):
+        """处理自动保存设置变化"""
+        self.auto_save_enabled = enabled
         
     def on_loading_progress(self, current: int, total: int, message: str):
         """处理加载进度"""
@@ -69,9 +80,10 @@ class AppController(QObject):
         
     def on_next_image(self):
         """处理下一张图片"""
-        # 保存当前标注
-        self.save_current_annotation()
-        
+        # 检查是否需要保存当前标注
+        if not self._handle_save_before_switch():
+            return  # 用户取消操作
+
         # 移动到下一张
         if self.data_manager.move_to_next():
             self.update_ui()
@@ -81,9 +93,10 @@ class AppController(QObject):
             
     def on_prev_image(self):
         """处理上一张图片"""
-        # 保存当前标注
-        self.save_current_annotation()
-        
+        # 检查是否需要保存当前标注
+        if not self._handle_save_before_switch():
+            return  # 用户取消操作
+
         # 移动到上一张
         if self.data_manager.move_to_prev():
             self.update_ui()
@@ -102,6 +115,38 @@ class AppController(QObject):
         """保存当前标注"""
         if self.current_annotation is not None:
             self.data_manager.save_annotation(self.current_annotation)
+
+    def _handle_save_before_switch(self):
+        """处理切换图片前的保存逻辑
+
+        Returns:
+            bool: True表示可以继续切换，False表示用户取消操作
+        """
+        # 检查当前标注内容是否为空
+        current_annotation = self.current_annotation.strip() if self.current_annotation else ""
+
+        if not current_annotation:
+            # 没有标注内容，直接切换，不保存
+            return True
+
+        if self.auto_save_enabled:
+            # 自动保存模式：直接保存
+            self.save_current_annotation()
+            return True
+        else:
+            # 手动保存模式：显示确认对话框
+            current_image = self.data_manager.get_current_image_info()
+            if current_image:
+                reply = self.main_window.show_save_confirmation(current_image.filename)
+
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.save_current_annotation()
+                    return True
+                elif reply == QMessageBox.StandardButton.No:
+                    return True
+                else:  # Cancel
+                    return False
+            return True
             
     def update_ui(self):
         """更新UI显示"""
@@ -144,10 +189,44 @@ class AppController(QObject):
         
     def closeEvent(self, event):
         """窗口关闭事件"""
-        # 保存当前标注
-        self.save_current_annotation()
-        
+        # 检查是否需要保存当前标注
+        if not self._handle_save_before_close():
+            event.ignore()  # 用户取消关闭
+            return
+
         # 清理资源
         self.data_manager.cleanup()
-        
+
         event.accept()
+
+    def _handle_save_before_close(self):
+        """处理关闭程序前的保存逻辑
+
+        Returns:
+            bool: True表示可以关闭程序，False表示用户取消关闭
+        """
+        # 检查当前标注内容是否为空
+        current_annotation = self.current_annotation.strip() if self.current_annotation else ""
+
+        if not current_annotation:
+            # 没有标注内容，直接关闭，不保存
+            return True
+
+        if self.auto_save_enabled:
+            # 自动保存模式：直接保存
+            self.save_current_annotation()
+            return True
+        else:
+            # 手动保存模式：显示确认对话框
+            current_image = self.data_manager.get_current_image_info()
+            if current_image:
+                reply = self.main_window.show_save_confirmation(current_image.filename)
+
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.save_current_annotation()
+                    return True
+                elif reply == QMessageBox.StandardButton.No:
+                    return True
+                else:  # Cancel
+                    return False
+            return True

@@ -1,0 +1,9 @@
+{
+  "name": "Quick Label",
+  "version": "0.0.2",
+  "description": "一款高效、易用的桌面应用程序，用于对图片进行文字描述标注。",
+  "author": "xinyang20",
+  "email": "gaoxinyang317@gmail.com",
+  "github": "https://github.com/xinyang20/quick_label",
+  "license": "MIT"
+}

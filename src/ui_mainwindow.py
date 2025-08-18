@@ -4,25 +4,56 @@
 Quick Label - 快捷图片标注工具 - UI界面模块
 """
 
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
+import os
+import sys
+import json
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
                              QLabel, QTextEdit, QPushButton, QMenuBar, QMenu,
                              QFileDialog, QMessageBox, QProgressBar, QSplitter)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QAction
+from about_dialog import AboutDialog
 
 
 class MainWindow(QMainWindow):
     """主窗口类"""
-    
+
     # 定义信号
     directory_selected = pyqtSignal(str)  # 目录选择信号
+    save_path_selected = pyqtSignal(str)  # 保存路径选择信号
+    auto_save_changed = pyqtSignal(bool)  # 自动保存设置变化信号
     next_image = pyqtSignal()  # 下一张图片信号
     prev_image = pyqtSignal()  # 上一张图片信号
     annotation_changed = pyqtSignal(str)  # 标注内容变化信号
-    
+
     def __init__(self):
         super().__init__()
+        self.version = self._load_version_info()
+        self.auto_save_enabled = True  # 默认开启自动保存
         self.init_ui()
+
+    def _load_version_info(self):
+        """从app.info文件加载版本信息"""
+        try:
+            # 获取资源文件路径（兼容PyInstaller打包）
+            if getattr(sys, 'frozen', False):
+                # 打包后的环境
+                current_dir = sys._MEIPASS
+            else:
+                # 开发环境
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+
+            app_info_path = os.path.join(current_dir, "app.info")
+
+            if os.path.exists(app_info_path):
+                with open(app_info_path, 'r', encoding='utf-8') as f:
+                    app_info = json.load(f)
+                    return app_info.get('version', '1.0.0')
+            else:
+                return '1.0.0'
+        except Exception as e:
+            print(f"加载版本信息失败: {e}")
+            return '1.0.0'
         
     def init_ui(self):
         """初始化UI界面"""
@@ -56,23 +87,47 @@ class MainWindow(QMainWindow):
     def create_menu_bar(self):
         """创建菜单栏"""
         menubar = self.menuBar()
-        
+
         # 文件菜单
         file_menu = menubar.addMenu('文件(&F)')
-        
+
         # 选择目录动作
         select_dir_action = QAction('选择工作目录(&O)', self)
         select_dir_action.setShortcut('Ctrl+O')
         select_dir_action.triggered.connect(self.select_directory)
         file_menu.addAction(select_dir_action)
-        
+
+        # 选择保存路径动作
+        select_save_path_action = QAction('设置标注保存路径(&S)', self)
+        select_save_path_action.setShortcut('Ctrl+S')
+        select_save_path_action.triggered.connect(self.select_save_path)
+        file_menu.addAction(select_save_path_action)
+
         file_menu.addSeparator()
-        
+
         # 退出动作
         exit_action = QAction('退出(&X)', self)
         exit_action.setShortcut('Ctrl+Q')
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+
+        # 设置菜单
+        settings_menu = menubar.addMenu('设置(&S)')
+
+        # 自动保存选项
+        self.auto_save_action = QAction('自动保存(&A)', self)
+        self.auto_save_action.setCheckable(True)
+        self.auto_save_action.setChecked(self.auto_save_enabled)
+        self.auto_save_action.triggered.connect(self.toggle_auto_save)
+        settings_menu.addAction(self.auto_save_action)
+
+        # 帮助菜单
+        help_menu = menubar.addMenu('帮助(&H)')
+
+        # 关于动作
+        about_action = QAction('关于Quick Label(&A)', self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
         
     def create_image_area(self, parent):
         """创建图片显示区域"""
@@ -153,12 +208,23 @@ class MainWindow(QMainWindow):
     def create_status_bar(self):
         """创建状态栏"""
         self.status_bar = self.statusBar()
-        
-        # 进度条
+
+        # 版本号标签（左侧永久显示）
+        self.version_label = QLabel(f"v{self.version}")
+        self.version_label.setStyleSheet("color: #666; font-size: 11px; margin-right: 10px;")
+        self.status_bar.addPermanentWidget(self.version_label)
+
+        # 分隔符
+        separator = QLabel("|")
+        separator.setStyleSheet("color: #ccc; margin: 0 5px;")
+        self.status_bar.addPermanentWidget(separator)
+
+        # 进度条（右侧）
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.status_bar.addPermanentWidget(self.progress_bar)
-        
+
+        # 设置初始状态消息
         self.status_bar.showMessage("就绪")
         
     def select_directory(self):
@@ -167,6 +233,38 @@ class MainWindow(QMainWindow):
             self, "选择包含图片的工作目录", "")
         if directory:
             self.directory_selected.emit(directory)
+
+    def select_save_path(self):
+        """选择标注文件保存路径"""
+        directory = QFileDialog.getExistingDirectory(
+            self, "选择标注文件保存目录", "")
+        if directory:
+            self.save_path_selected.emit(directory)
+            self.show_message("设置成功", f"标注文件保存路径已设置为：\n{directory}", "info")
+
+    def toggle_auto_save(self):
+        """切换自动保存设置"""
+        self.auto_save_enabled = self.auto_save_action.isChecked()
+        self.auto_save_changed.emit(self.auto_save_enabled)
+
+        status = "开启" if self.auto_save_enabled else "关闭"
+        self.show_message("设置成功", f"自动保存已{status}", "info")
+
+    def show_save_confirmation(self, filename):
+        """显示保存确认对话框"""
+        reply = QMessageBox.question(
+            self,
+            "保存确认",
+            f"是否保存当前图片的标注？\n\n文件：{filename}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes
+        )
+        return reply
+
+    def show_about_dialog(self):
+        """显示关于对话框"""
+        about_dialog = AboutDialog(self)
+        about_dialog.exec()
             
     def on_prev_clicked(self):
         """上一张按钮点击"""

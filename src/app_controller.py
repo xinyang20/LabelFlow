@@ -8,6 +8,7 @@ from PyQt6.QtCore import QObject, QTimer
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from ui_mainwindow import MainWindow
 from data_manager import DataManager
+from language_manager import tr
 
 
 class AppController(QObject):
@@ -20,7 +21,8 @@ class AppController(QObject):
         self.auto_save_timer = QTimer()
         self.current_annotation = ""
         self.auto_save_enabled = True  # 默认开启自动保存
-        
+        self.available_labels = []  # 全局可用标签列表
+
         self.setup_connections()
         self.setup_auto_save()
         
@@ -33,6 +35,8 @@ class AppController(QObject):
         self.main_window.next_image.connect(self.on_next_image)
         self.main_window.prev_image.connect(self.on_prev_image)
         self.main_window.annotation_changed.connect(self.on_annotation_changed)
+        self.main_window.mode_changed.connect(self.on_mode_changed)
+        self.main_window.labels_changed.connect(self.on_labels_changed)
 
         # 数据管理器信号连接
         self.data_manager.loading_progress.connect(self.on_loading_progress)
@@ -71,6 +75,7 @@ class AppController(QObject):
     def on_loading_finished(self):
         """处理加载完成"""
         self.main_window.show_loading_progress(False)
+        self.load_available_labels()  # 加载可用标签
         self.update_ui()
         
     def on_hash_progress(self, current: int, total: int, filename: str):
@@ -89,7 +94,7 @@ class AppController(QObject):
             self.update_ui()
         else:
             # 已经是最后一张
-            self.main_window.show_message("提示", "全部标注完成！", "info")
+            self.main_window.show_message(tr("tip"), tr("annotation_complete"), "info")
             
     def on_prev_image(self):
         """处理上一张图片"""
@@ -180,7 +185,15 @@ class AppController(QObject):
         
         # 更新标注内容
         self.current_annotation = current_image.annotation
+
+        # 在更新标注前，确保可用标签列表是最新的
+        self.load_available_labels()
+
         self.main_window.update_annotation(current_image.annotation)
+
+        # 如果没有标注内容，重置标签选择状态
+        if not current_image.annotation.strip():
+            self.main_window.reset_label_selection()
         
         # 更新导航按钮状态
         has_prev = self.data_manager.has_prev()
@@ -230,3 +243,20 @@ class AppController(QObject):
                 else:  # Cancel
                     return False
             return True
+
+    def on_mode_changed(self, mode):
+        """处理标注模式变化"""
+        # 可以在这里添加模式变化的处理逻辑
+        print(f"标注模式已切换为: {mode}")
+
+    def on_labels_changed(self, labels):
+        """处理标签列表变化"""
+        self.available_labels = labels[:]
+        # 保存标签到数据管理器
+        self.data_manager.set_available_labels(labels)
+
+    def load_available_labels(self):
+        """加载可用标签列表"""
+        labels = self.data_manager.get_available_labels()
+        self.available_labels = labels
+        self.main_window.set_available_labels(labels)

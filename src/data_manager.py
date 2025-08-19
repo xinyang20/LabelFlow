@@ -163,6 +163,8 @@ class DataManager(QObject):
         self.work_directory = ""
         self.labels_file = ""
         self.labels_data: Dict[str, str] = {}
+        self.available_labels = []  # 可用标签列表
+        self.labels_cache_file = ""  # 标签缓存文件
         self.mutex = QMutex()
         self.hash_thread = None
         self.loaded_images_count = 0
@@ -175,7 +177,9 @@ class DataManager(QObject):
         """设置工作目录"""
         self.work_directory = directory
         self.labels_file = os.path.join(directory, "labels.json")
+        self.labels_cache_file = os.path.join(directory, "labels_cache.json")
         self.load_labels()
+        self.load_labels_cache()
         self.scan_images()
 
     def set_custom_save_path(self, path: str):
@@ -394,14 +398,55 @@ class DataManager(QObject):
             if self.enable_base64:
                 base64_data = image_info.calculate_base64(self.enable_base64, self.max_base64_file_size_mb)
 
-            # 构建标注数据
+            # 构建基础标注数据
             annotation_data = {
                 "filename": image_info.filename,
                 "hash": image_info.hash,
-                "annotation": image_info.annotation,
                 "file_size": image_info.get_file_size(),
                 "base64_data": base64_data
             }
+
+            # 解析标注内容并直接保存到根级别字段
+            try:
+                if image_info.annotation.strip().startswith('{'):
+                    parsed_annotation = json.loads(image_info.annotation)
+
+                    # 直接将解析后的字段添加到根级别
+                    if 'describe' in parsed_annotation:
+                        annotation_data['describe'] = parsed_annotation['describe']
+
+                    if 'label' in parsed_annotation:
+                        annotation_data['label'] = parsed_annotation['label']
+                        # 将标签添加到可用标签列表
+                        for label in parsed_annotation['label']:
+                            if label not in self.available_labels:
+                                self.available_labels.append(label)
+                        self.save_labels_cache()
+
+                    # 保持向后兼容的annotation字段
+                    if 'annotation' in parsed_annotation:
+                        annotation_data['annotation'] = parsed_annotation['annotation']
+
+                    # 处理旧格式的labels字段
+                    if 'labels' in parsed_annotation and 'label' not in parsed_annotation:
+                        annotation_data['label'] = parsed_annotation['labels']
+                        # 将标签添加到可用标签列表
+                        for label in parsed_annotation['labels']:
+                            if label not in self.available_labels:
+                                self.available_labels.append(label)
+                        self.save_labels_cache()
+
+                else:
+                    # 纯文本格式，保存为describe字段
+                    if image_info.annotation.strip():
+                        annotation_data['annotation'] = image_info.annotation
+                        annotation_data['describe'] = image_info.annotation
+
+            except json.JSONDecodeError:
+                # 解析失败，按纯文本处理
+                if image_info.annotation.strip():
+                    annotation_data['annotation'] = image_info.annotation
+                    annotation_data['describe'] = image_info.annotation
 
             # 保存JSON文件
             with open(json_path, 'w', encoding='utf-8') as f:
@@ -443,13 +488,34 @@ class DataManager(QObject):
                             annotation_data = json.load(f)
 
                         # 检查是否是标注文件格式
-                        if 'hash' in annotation_data and 'annotation' in annotation_data:
+                        if 'hash' in annotation_data:
                             hash_value = annotation_data['hash']
-                            annotation = annotation_data['annotation']
 
-                            # 更新labels_data
-                            self.labels_data[hash_value] = annotation
-                            loaded_count += 1
+                            # 重构标注数据为统一格式
+                            reconstructed_data = {}
+
+                            # 优先使用新字段格式
+                            if 'describe' in annotation_data:
+                                reconstructed_data['describe'] = annotation_data['describe']
+
+                            if 'label' in annotation_data:
+                                reconstructed_data['label'] = annotation_data['label']
+
+                            # 向后兼容旧字段
+                            if 'annotation' in annotation_data:
+                                reconstructed_data['annotation'] = annotation_data['annotation']
+
+                            # 如果有新字段，将其转换为JSON字符串保存到labels_data
+                            if reconstructed_data:
+                                import json
+                                self.labels_data[hash_value] = json.dumps(reconstructed_data, ensure_ascii=False)
+                                loaded_count += 1
+
+                                # 立即提取标签到可用标签列表
+                                if 'label' in reconstructed_data:
+                                    for label in reconstructed_data['label']:
+                                        if label not in self.available_labels:
+                                            self.available_labels.append(label)
 
                     except Exception as e:
                         # 忽略无法解析的JSON文件
@@ -457,6 +523,8 @@ class DataManager(QObject):
 
         if loaded_count > 0:
             print(f"从新格式加载了 {loaded_count} 个标签")
+            # 保存更新后的标签缓存
+            self.save_labels_cache()
                 
     def save_labels(self):
         """保存标签数据到文件"""
@@ -485,3 +553,88 @@ class DataManager(QObject):
         if self.hash_thread and self.hash_thread.isRunning():
             self.hash_thread.stop()
             self.hash_thread.wait()
+
+    def set_available_labels(self, labels: List[str]):
+        """设置可用标签列表"""
+        self.available_labels = labels[:]
+        self.save_labels_cache()
+
+    def get_available_labels(self) -> List[str]:
+        """获取可用标签列表"""
+        return self.available_labels[:]
+
+    def load_labels_cache(self):
+        """加载标签缓存"""
+        if os.path.exists(self.labels_cache_file):
+            try:
+                with open(self.labels_cache_file, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+                    self.available_labels = cache_data.get('available_labels', [])
+                print(f"加载了 {len(self.available_labels)} 个缓存标签")
+            except Exception as e:
+                print(f"加载标签缓存失败: {e}")
+                self.available_labels = []
+
+        # 从现有标注中提取标签
+        self.extract_labels_from_annotations()
+
+    def save_labels_cache(self):
+        """保存标签缓存"""
+        try:
+            cache_data = {
+                'available_labels': self.available_labels
+            }
+            with open(self.labels_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存标签缓存失败: {e}")
+
+    def extract_labels_from_annotations(self):
+        """从现有标注中提取标签"""
+        extracted_labels = set()
+
+        # 扫描工作目录中的JSON文件
+        if not self.work_directory:
+            return
+
+        for root, dirs, files in os.walk(self.work_directory):
+            for file in files:
+                if file.lower().endswith('.json') and file not in ['labels.json', 'labels_cache.json']:
+                    json_path = os.path.join(root, file)
+                    try:
+                        with open(json_path, 'r', encoding='utf-8') as f:
+                            annotation_data = json.load(f)
+
+                        # 检查新字段格式（直接在根级别）
+                        if 'label' in annotation_data:
+                            extracted_labels.update(annotation_data['label'])
+
+                        # 检查旧格式的labels字段
+                        if 'labels' in annotation_data:
+                            extracted_labels.update(annotation_data['labels'])
+
+                        # 检查旧annotation字段中的嵌套格式
+                        if 'annotation' in annotation_data:
+                            annotation = annotation_data['annotation']
+                            if annotation and annotation.strip().startswith('{'):
+                                try:
+                                    parsed_annotation = json.loads(annotation)
+                                    if 'label' in parsed_annotation:
+                                        extracted_labels.update(parsed_annotation['label'])
+                                    elif 'labels' in parsed_annotation:
+                                        # 向后兼容旧格式
+                                        extracted_labels.update(parsed_annotation['labels'])
+                                except json.JSONDecodeError:
+                                    pass  # 不是JSON格式，跳过
+
+                    except Exception as e:
+                        continue  # 忽略无法解析的文件
+
+        # 合并提取的标签到可用标签列表
+        for label in extracted_labels:
+            if label not in self.available_labels:
+                self.available_labels.append(label)
+
+        if extracted_labels:
+            print(f"从现有标注中提取了 {len(extracted_labels)} 个标签")
+            self.save_labels_cache()

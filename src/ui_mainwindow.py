@@ -11,11 +11,72 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
                              QLabel, QTextEdit, QPushButton, QMenuBar, QMenu,
                              QFileDialog, QMessageBox, QProgressBar, QSplitter,
                              QComboBox, QLineEdit, QCheckBox, QScrollArea, QFrame,
-                             QSlider, QSpinBox)
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap, QAction, QWheelEvent
+                             QSlider, QSpinBox, QListWidget, QListWidgetItem)
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint
+from PyQt6.QtGui import QPixmap, QAction, QWheelEvent, QMouseEvent
 from about_dialog import AboutDialog
 from language_manager import language_manager, tr
+from shortcut_manager import ShortcutManager
+
+
+class DraggableImageLabel(QLabel):
+    """可拖拽的图像标签"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.dragging = False
+        self.last_pan_point = QPoint()
+        self.zoom_factor = 100  # 缩放比例
+
+    def set_zoom_factor(self, zoom_factor):
+        """设置缩放比例"""
+        self.zoom_factor = zoom_factor
+
+    def mousePressEvent(self, event: QMouseEvent):
+        """鼠标按下事件"""
+        if (event.button() == Qt.MouseButton.LeftButton and
+            event.modifiers() & Qt.KeyboardModifier.ControlModifier and
+            self.zoom_factor > 100):
+            self.dragging = True
+            self.last_pan_point = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            print(f"开始拖拽，缩放比例: {self.zoom_factor}%")  # 调试信息
+            event.accept()  # 接受事件
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        """鼠标移动事件"""
+        if (self.dragging and
+            event.buttons() & Qt.MouseButton.LeftButton and
+            event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+
+            # 计算移动距离
+            delta = event.pos() - self.last_pan_point
+            self.last_pan_point = event.pos()
+
+            # 获取父级滚动区域
+            scroll_area = self.parent()
+            while scroll_area and not isinstance(scroll_area, QScrollArea):
+                scroll_area = scroll_area.parent()
+
+            if scroll_area:
+                # 移动滚动条
+                h_scroll = scroll_area.horizontalScrollBar()
+                v_scroll = scroll_area.verticalScrollBar()
+
+                h_scroll.setValue(h_scroll.value() - delta.x())
+                v_scroll.setValue(v_scroll.value() - delta.y())
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        """鼠标释放事件"""
+        if event.button() == Qt.MouseButton.LeftButton and self.dragging:
+            self.dragging = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            super().mouseReleaseEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -30,6 +91,9 @@ class MainWindow(QMainWindow):
     annotation_changed = pyqtSignal(str)  # 标注内容变化信号
     mode_changed = pyqtSignal(str)  # 标注模式变化信号
     labels_changed = pyqtSignal(list)  # 标签列表变化信号
+    jump_to_image = pyqtSignal(int)  # 跳转到指定图片信号
+    rename_images = pyqtSignal()  # 一键重命名图片信号
+    compatibility_mode_changed = pyqtSignal(bool)  # 兼容模式变化信号
 
     def __init__(self):
         super().__init__()
@@ -45,6 +109,9 @@ class MainWindow(QMainWindow):
         language_manager.language_changed.connect(self.on_language_changed)
 
         self.init_ui()
+
+        # 延迟初始化快捷键管理器，确保UI完全创建后再绑定
+        self.init_shortcuts()
 
     def _load_version_info(self):
         """从app.info文件加载版本信息"""
@@ -97,6 +164,20 @@ class MainWindow(QMainWindow):
         
         # 创建状态栏
         self.create_status_bar()
+
+    def init_shortcuts(self):
+        """初始化快捷键系统"""
+        try:
+            # 初始化快捷键管理器
+            self.shortcut_manager = ShortcutManager(self)
+            self.shortcut_manager.shortcut_triggered.connect(self.on_shortcut_triggered)
+
+            # 更新菜单显示的快捷键
+            self.update_menu_shortcuts()
+
+            print("快捷键系统初始化完成")
+        except Exception as e:
+            print(f"快捷键系统初始化失败: {e}")
         
     def create_menu_bar(self):
         """创建菜单栏"""
@@ -107,13 +188,11 @@ class MainWindow(QMainWindow):
 
         # 选择目录动作
         self.select_dir_action = QAction(tr('select_directory'), self)
-        self.select_dir_action.setShortcut('Ctrl+O')
         self.select_dir_action.triggered.connect(self.select_directory)
         self.file_menu.addAction(self.select_dir_action)
 
         # 选择保存路径动作
         self.select_save_path_action = QAction(tr('set_save_path'), self)
-        self.select_save_path_action.setShortcut('Ctrl+S')
         self.select_save_path_action.triggered.connect(self.select_save_path)
         self.file_menu.addAction(self.select_save_path_action)
 
@@ -121,7 +200,6 @@ class MainWindow(QMainWindow):
 
         # 退出动作
         self.exit_action = QAction(tr('exit'), self)
-        self.exit_action.setShortcut('Ctrl+Q')
         self.exit_action.triggered.connect(self.close)
         self.file_menu.addAction(self.exit_action)
 
@@ -135,10 +213,25 @@ class MainWindow(QMainWindow):
         self.auto_save_action.triggered.connect(self.toggle_auto_save)
         self.settings_menu.addAction(self.auto_save_action)
 
+        # 兼容模式选项
+        self.compatibility_mode_enabled = False  # 默认关闭兼容模式
+        self.compatibility_action = QAction("兼容模式 (支持V0.0.2格式)", self)
+        self.compatibility_action.setCheckable(True)
+        self.compatibility_action.setChecked(self.compatibility_mode_enabled)
+        self.compatibility_action.triggered.connect(self.toggle_compatibility_mode)
+        self.settings_menu.addAction(self.compatibility_action)
+
         self.settings_menu.addSeparator()
 
         # 语言菜单
         self.create_language_menu()
+
+        self.settings_menu.addSeparator()
+
+        # 一键重命名功能
+        self.rename_action = QAction("一键重命名图片", self)
+        self.rename_action.triggered.connect(self.show_rename_confirmation)
+        self.settings_menu.addAction(self.rename_action)
 
         self.settings_menu.addSeparator()
 
@@ -152,6 +245,24 @@ class MainWindow(QMainWindow):
         self.about_action = QAction(tr('about'), self)
         self.about_action.triggered.connect(self.show_about_dialog)
         self.help_menu.addAction(self.about_action)
+
+    def update_menu_shortcuts(self):
+        """更新菜单显示的快捷键"""
+        if hasattr(self, 'shortcut_manager'):
+            # 只更新菜单项显示的快捷键文本，不设置实际快捷键（避免冲突）
+            shortcuts = self.shortcut_manager.get_all_shortcuts()
+
+            # 更新菜单项文本以显示快捷键，但不设置实际快捷键
+            if "Open Directory" in shortcuts:
+                self.select_dir_action.setText(f"{tr('select_directory')}\t{shortcuts['Open Directory']}")
+            if "Set Save Path" in shortcuts:
+                self.select_save_path_action.setText(f"{tr('set_save_path')}\t{shortcuts['Set Save Path']}")
+            if "Exit" in shortcuts:
+                self.exit_action.setText(f"{tr('exit')}\t{shortcuts['Exit']}")
+            if "About Page" in shortcuts:
+                self.about_action.setText(f"{tr('about')}\t{shortcuts['About Page']}")
+
+            print("菜单快捷键显示已更新")
         
     def create_image_area(self, parent):
         """创建图片显示区域"""
@@ -163,7 +274,7 @@ class MainWindow(QMainWindow):
         self.image_scroll.setWidgetResizable(True)
         self.image_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.image_label = QLabel()
+        self.image_label = DraggableImageLabel()
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setStyleSheet("""
             QLabel {
@@ -193,25 +304,36 @@ class MainWindow(QMainWindow):
         control_widget = QWidget()
         control_layout = QVBoxLayout(control_widget)
 
-        # 文件信息区域
-        info_layout = QVBoxLayout()
+        # 文件信息区域 - 使用固定布局
+        info_frame = QFrame()
+        info_frame.setFrameStyle(QFrame.Shape.Box)
+        info_frame.setStyleSheet("QFrame { border: 1px solid #cccccc; border-radius: 3px; padding: 8px; }")
+        info_layout = QVBoxLayout(info_frame)
+        info_layout.setContentsMargins(8, 8, 8, 8)
+        info_layout.setSpacing(4)
+
+        # 统一字号样式
+        label_style = "font-size: 12px; font-weight: normal;"
 
         # 文件名显示
         self.filename_label = QLabel(f"{tr('filename')}: {tr('not_selected')}")
         self.filename_label.setWordWrap(True)
+        self.filename_label.setStyleSheet(label_style)
         info_layout.addWidget(self.filename_label)
 
-        # 哈希值显示
+        # 哈希值显示 - 预留两行空间
         self.hash_label = QLabel(f"SHA256: {tr('not_calculated')}")
         self.hash_label.setWordWrap(True)
-        self.hash_label.setStyleSheet("font-family: monospace; font-size: 10px;")
+        self.hash_label.setStyleSheet(f"{label_style} font-family: monospace; min-height: 32px;")
+        self.hash_label.setMinimumHeight(32)  # 确保有足够空间显示两行
         info_layout.addWidget(self.hash_label)
 
         # 进度显示
         self.progress_label = QLabel(f"{tr('progress')}: 0 / 0")
+        self.progress_label.setStyleSheet(label_style)
         info_layout.addWidget(self.progress_label)
 
-        control_layout.addLayout(info_layout)
+        control_layout.addWidget(info_frame)
 
         # 标注区域
         self.create_annotation_area(control_layout)
@@ -230,12 +352,38 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.next_button)
         
         control_layout.addLayout(button_layout)
-        
+
+        # 文件目录显示框
+        self.create_file_list_area(control_layout)
+
         # 添加弹性空间
         control_layout.addStretch()
         
         parent.addWidget(control_widget)
-        
+
+    def create_file_list_area(self, parent_layout):
+        """创建文件目录显示区域"""
+        # 文件列表框架
+        file_list_frame = QFrame()
+        file_list_frame.setFrameStyle(QFrame.Shape.Box)
+        file_list_frame.setStyleSheet("QFrame { border: 1px solid #cccccc; border-radius: 3px; }")
+        file_list_layout = QVBoxLayout(file_list_frame)
+        file_list_layout.setContentsMargins(8, 8, 8, 8)
+
+        # 标题
+        file_list_label = QLabel("文件目录:")
+        file_list_label.setStyleSheet("font-size: 12px; font-weight: bold;")
+        file_list_layout.addWidget(file_list_label)
+
+        # 文件列表
+        self.file_list_widget = QListWidget()
+        self.file_list_widget.setMaximumHeight(150)
+        self.file_list_widget.setMinimumHeight(100)
+        self.file_list_widget.itemDoubleClicked.connect(self.on_file_item_double_clicked)
+        file_list_layout.addWidget(self.file_list_widget)
+
+        parent_layout.addWidget(file_list_frame)
+
     def create_status_bar(self):
         """创建状态栏"""
         self.status_bar = self.statusBar()
@@ -281,12 +429,28 @@ class MainWindow(QMainWindow):
         status = tr("auto_save_enabled") if self.auto_save_enabled else tr("auto_save_disabled")
         self.show_message(tr("setting_success"), status, "info")
 
+    def toggle_compatibility_mode(self):
+        """切换兼容模式"""
+        self.compatibility_mode_enabled = not self.compatibility_mode_enabled
+        self.compatibility_action.setChecked(self.compatibility_mode_enabled)
+
+        # 发送兼容模式变化信号
+        self.compatibility_mode_changed.emit(self.compatibility_mode_enabled)
+
+        status = "兼容模式已开启 (支持V0.0.2格式)" if self.compatibility_mode_enabled else "兼容模式已关闭 (仅支持V0.0.3格式)"
+        self.show_message("设置成功", status, "info")
+
     def show_save_confirmation(self, filename):
         """显示保存确认对话框"""
-        reply = QMessageBox.question(
+        reply = QMessageBox.warning(
             self,
-            tr("save_confirmation"),
-            f"{tr('save_current_annotation')}\n\n{tr('file')}：{filename}",
+            "⚠️ 未保存警告",
+            f"当前图片有未保存的标注内容！\n\n"
+            f"文件：{filename}\n\n"
+            f"是否要保存当前标注？\n"
+            f"• 是：保存并继续\n"
+            f"• 否：放弃更改并继续\n"
+            f"• 取消：返回继续编辑",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Yes
         )
@@ -296,6 +460,36 @@ class MainWindow(QMainWindow):
         """显示关于对话框"""
         about_dialog = AboutDialog(self)
         about_dialog.exec()
+
+    def show_rename_confirmation(self):
+        """显示重命名确认对话框"""
+        reply = QMessageBox.warning(
+            self,
+            "危险操作警告",
+            "一键重命名功能将会：\n\n"
+            "1. 将工作目录下的所有图像文件重命名为 IMG_000000.xxx 格式\n"
+            "2. 同步修改对应的JSON标注文件名称和内部filename字段\n"
+            "3. 此操作不可逆，原文件名将永久丢失\n\n"
+            "确定要继续吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # 二次确认
+            reply2 = QMessageBox.critical(
+                self,
+                "最终确认",
+                "这是最后一次确认！\n\n"
+                "重命名操作将立即开始，且无法撤销。\n"
+                "请确保您已经备份了重要文件。\n\n"
+                "真的要执行重命名吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply2 == QMessageBox.StandardButton.Yes:
+                self.rename_images.emit()
             
     def on_prev_clicked(self):
         """上一张按钮点击"""
@@ -304,6 +498,37 @@ class MainWindow(QMainWindow):
     def on_next_clicked(self):
         """下一张按钮点击"""
         self.next_image.emit()
+
+    def on_file_item_double_clicked(self, item):
+        """文件列表项双击处理"""
+        # 获取项目的索引
+        index = self.file_list_widget.row(item)
+        # 发送跳转信号
+        self.jump_to_image.emit(index)
+
+    def on_shortcut_triggered(self, function_name: str):
+        """快捷键触发处理"""
+        print(f"快捷键触发: {function_name}")  # 调试信息
+
+        if function_name == "Open Directory":
+            self.select_directory()
+        elif function_name == "Set Save Path":
+            self.select_save_path()
+        elif function_name == "Exit":
+            self.close()
+        elif function_name == "Previous Image":
+            self.on_prev_clicked()
+        elif function_name == "Next Image":
+            self.on_next_clicked()
+        elif function_name == "About Page":
+            self.show_about_dialog()
+        elif function_name.startswith("Label ") and self.current_mode in ["label", "mixed"]:
+            # 处理数字标签快捷键
+            try:
+                label_index = int(function_name.split(" ")[1])
+                self.toggle_label_by_index(label_index)
+            except (ValueError, IndexError):
+                pass
         
     def on_annotation_changed(self):
         """标注内容变化"""
@@ -327,6 +552,10 @@ class MainWindow(QMainWindow):
 
             # 应用当前缩放
             self.update_image_zoom()
+
+            # 重置滚动位置到居中
+            self.image_scroll.horizontalScrollBar().setValue(0)
+            self.image_scroll.verticalScrollBar().setValue(0)
         else:
             self.original_pixmap = None
             self.image_label.setText(tr("cannot_load_image"))
@@ -344,24 +573,54 @@ class MainWindow(QMainWindow):
         self.annotation_text.textChanged.disconnect()
 
         try:
-            # 尝试解析为JSON格式
-            import json
-            if annotation.strip().startswith('{'):
-                data = json.loads(annotation)
-                self.set_annotation_data(data)
+            # 处理空字符串或None
+            if not annotation or not annotation.strip():
+                self.set_annotation_data("")
             else:
-                # 兼容旧格式（纯字符串）
-                self.set_annotation_data(annotation)
-        except (json.JSONDecodeError, AttributeError):
+                # 尝试解析为JSON格式
+                import json
+                if annotation.strip().startswith('{'):
+                    data = json.loads(annotation)
+                    self.set_annotation_data(data)
+                    print(f"恢复标注内容: {data}")  # 调试信息
+                else:
+                    # 兼容旧格式（纯字符串）
+                    self.set_annotation_data(annotation)
+                    print(f"恢复文本标注: {annotation}")  # 调试信息
+        except (json.JSONDecodeError, AttributeError) as e:
             # 如果解析失败，按字符串处理
+            print(f"标注解析失败，按字符串处理: {e}")
             self.set_annotation_data(annotation)
 
+        # 重新连接信号
         self.annotation_text.textChanged.connect(self.on_annotation_changed)
         
     def update_navigation_buttons(self, has_prev, has_next):
         """更新导航按钮状态"""
         self.prev_button.setEnabled(has_prev)
         self.next_button.setEnabled(has_next)
+
+    def update_file_list(self, file_list, current_index):
+        """更新文件列表显示
+
+        Args:
+            file_list: 文件名列表
+            current_index: 当前选中的文件索引
+        """
+        self.file_list_widget.clear()
+
+        for i, filename in enumerate(file_list):
+            item = QListWidgetItem(filename)
+            # 设置当前文件的样式
+            if i == current_index:
+                item.setBackground(self.palette().highlight())
+                item.setForeground(self.palette().highlightedText())
+            self.file_list_widget.addItem(item)
+
+        # 确保当前项可见
+        if 0 <= current_index < len(file_list):
+            self.file_list_widget.setCurrentRow(current_index)
+            self.file_list_widget.scrollToItem(self.file_list_widget.currentItem())
         
     def show_loading_progress(self, visible, current=0, total=0, message=""):
         """显示加载进度"""
@@ -385,10 +644,28 @@ class MainWindow(QMainWindow):
 
 
     def create_annotation_area(self, parent_layout):
-        """创建标注区域"""
+        """创建标注区域 - 使用可拖拽的分割器"""
+        # 创建垂直分割器用于标注区域
+        self.annotation_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.annotation_splitter.setChildrenCollapsible(False)  # 防止子部件被完全折叠
+        self.annotation_splitter.setHandleWidth(8)  # 设置拖拽手柄宽度
+        self.annotation_splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #cccccc;
+                border: 1px solid #999999;
+                border-radius: 2px;
+            }
+            QSplitter::handle:hover {
+                background-color: #aaaaaa;
+            }
+        """)
+
         # 描述模式区域
         self.description_frame = QFrame()
+        self.description_frame.setFrameStyle(QFrame.Shape.Box)
+        self.description_frame.setStyleSheet("QFrame { border: 1px solid #cccccc; border-radius: 3px; }")
         desc_layout = QVBoxLayout(self.description_frame)
+        desc_layout.setContentsMargins(8, 8, 8, 8)
 
         desc_label = QLabel(f"{tr('annotation_content')}:")
         desc_layout.addWidget(desc_label)
@@ -396,13 +673,17 @@ class MainWindow(QMainWindow):
         self.annotation_text = QTextEdit()
         self.annotation_text.setPlaceholderText(tr("input_description"))
         self.annotation_text.textChanged.connect(self.on_annotation_changed)
+        self.annotation_text.setMinimumHeight(100)  # 设置最小高度
         desc_layout.addWidget(self.annotation_text)
 
-        parent_layout.addWidget(self.description_frame)
+        self.annotation_splitter.addWidget(self.description_frame)
 
         # 标签模式区域
         self.label_frame = QFrame()
+        self.label_frame.setFrameStyle(QFrame.Shape.Box)
+        self.label_frame.setStyleSheet("QFrame { border: 1px solid #cccccc; border-radius: 3px; }")
         label_layout = QVBoxLayout(self.label_frame)
+        label_layout.setContentsMargins(8, 8, 8, 8)
 
         # 新标签输入
         new_label_layout = QHBoxLayout()
@@ -426,7 +707,7 @@ class MainWindow(QMainWindow):
         # 创建滚动区域用于标签列表
         self.labels_scroll = QScrollArea()
         self.labels_scroll.setWidgetResizable(True)
-        self.labels_scroll.setMaximumHeight(200)
+        self.labels_scroll.setMinimumHeight(100)  # 设置最小高度，移除最大高度限制
 
         self.labels_widget = QWidget()
         self.labels_layout = QVBoxLayout(self.labels_widget)
@@ -434,9 +715,15 @@ class MainWindow(QMainWindow):
 
         label_layout.addWidget(self.labels_scroll)
 
+        self.annotation_splitter.addWidget(self.label_frame)
+
+        # 设置分割器的初始比例 (描述区域:标签区域 = 1:1)
+        self.annotation_splitter.setSizes([200, 200])
+
         # 初始状态隐藏标签模式
         self.label_frame.setVisible(False)
-        parent_layout.addWidget(self.label_frame)
+
+        parent_layout.addWidget(self.annotation_splitter)
 
 
 
@@ -469,20 +756,49 @@ class MainWindow(QMainWindow):
                 child.setParent(None)
 
         # 添加标签复选框
-        for label in self.available_labels:
+        for i, label in enumerate(self.available_labels):
+            # 创建水平布局容器
+            label_container = QWidget()
+            label_layout = QHBoxLayout(label_container)
+            label_layout.setContentsMargins(0, 0, 0, 0)
+            label_layout.setSpacing(5)
+
+            # 创建复选框
             checkbox = QCheckBox(label)
             checkbox.setChecked(label in self.selected_labels)
-            checkbox.stateChanged.connect(lambda state, l=label: self.on_label_checked(l, state))
-            self.labels_layout.addWidget(checkbox)
+
+            # 使用partial函数避免lambda闭包问题
+            from functools import partial
+            checkbox.stateChanged.connect(partial(self.on_label_checked, label))
+
+            # 添加复选框到布局
+            label_layout.addWidget(checkbox)
+
+            # 在标签模式和混合模式下添加快捷键提示
+            if self.current_mode in ['label', 'mixed'] and i < 10:
+                shortcut_label = QLabel(f"Ctrl+{i}")
+                shortcut_label.setStyleSheet("color: #888888; font-size: 10px;")
+                shortcut_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                label_layout.addWidget(shortcut_label)
+
+            # 添加弹性空间
+            label_layout.addStretch()
+
+            # 添加容器到主布局
+            self.labels_layout.addWidget(label_container)
 
     def on_label_checked(self, label, state):
         """处理标签选择状态变化"""
+        print(f"标签状态变化: {label} -> {state}")  # 调试信息
+
         if state == 2:  # 选中
             if label not in self.selected_labels:
                 self.selected_labels.append(label)
+                print(f"添加标签: {label}")
         else:  # 取消选中
             if label in self.selected_labels:
                 self.selected_labels.remove(label)
+                print(f"移除标签: {label}")
 
         # 触发标注内容变化，自动保存
         self.on_annotation_changed()
@@ -501,6 +817,23 @@ class MainWindow(QMainWindow):
         """重置标签选择状态（切换图片时使用）"""
         self.selected_labels = []
         self.update_labels_display()
+
+    def toggle_label_by_index(self, index: int):
+        """通过索引切换标签选中状态（用于快捷键）
+
+        Args:
+            index: 标签索引（0-9）
+        """
+        if 0 <= index < len(self.available_labels):
+            label = self.available_labels[index]
+            if label in self.selected_labels:
+                self.selected_labels.remove(label)
+            else:
+                self.selected_labels.append(label)
+
+            self.update_labels_display()
+            # 触发标注内容变化，自动保存
+            self.on_annotation_changed()
 
     def get_annotation_data(self):
         """获取当前标注数据"""
@@ -535,6 +868,8 @@ class MainWindow(QMainWindow):
 
     def set_annotation_data(self, data):
         """设置标注数据"""
+        print(f"设置标注数据: {data}")  # 调试信息
+
         # 初始化
         self.annotation_text.setPlainText("")
         self.selected_labels = []
@@ -542,10 +877,12 @@ class MainWindow(QMainWindow):
         if isinstance(data, str):
             # 兼容旧格式（纯字符串）
             self.annotation_text.setPlainText(data)
+            print(f"设置文本内容（字符串）: {data}")
         elif isinstance(data, dict):
             # 优先使用新字段格式
-            if "describe" in data:
+            if "describe" in data and data["describe"]:
                 self.annotation_text.setPlainText(data["describe"])
+                print(f"设置文本内容（describe字段）: {data['describe']}")
             elif "annotation" in data:
                 # 向后兼容旧annotation字段
                 annotation = data["annotation"]
@@ -557,20 +894,27 @@ class MainWindow(QMainWindow):
                             parsed = json.loads(annotation)
                             if "annotation" in parsed:
                                 self.annotation_text.setPlainText(parsed["annotation"])
+                                print(f"设置文本内容（嵌套JSON）: {parsed['annotation']}")
                             if "labels" in parsed:
                                 self.selected_labels = parsed["labels"][:]
+                                print(f"设置标签（嵌套JSON）: {parsed['labels']}")
                         else:
                             self.annotation_text.setPlainText(annotation)
-                    except (json.JSONDecodeError, AttributeError):
+                            print(f"设置文本内容（annotation字段）: {annotation}")
+                    except (json.JSONDecodeError, AttributeError) as e:
                         self.annotation_text.setPlainText(annotation)
+                        print(f"JSON解析失败，按字符串处理: {e}")
 
             # 处理标签字段
-            if "label" in data:
+            if "label" in data and data["label"]:
                 self.selected_labels = data["label"][:]
-            elif "labels" in data:
+                print(f"设置标签（label字段）: {data['label']}")
+            elif "labels" in data and data["labels"]:
                 # 向后兼容旧labels字段
                 self.selected_labels = data["labels"][:]
+                print(f"设置标签（labels字段）: {data['labels']}")
 
+        print(f"最终标签状态: {self.selected_labels}")
         self.update_labels_display()
 
     def create_zoom_controls(self, parent_layout):
@@ -682,6 +1026,15 @@ class MainWindow(QMainWindow):
             self.image_label.setPixmap(scaled_pixmap)
             self.image_label.resize(scaled_pixmap.size())
 
+            # 同步更新图像标签的缩放比例，用于拖拽功能
+            self.image_label.set_zoom_factor(self.zoom_factor)
+
+            # 设置拖拽提示
+            if self.zoom_factor > 100:
+                self.image_label.setToolTip("按住Ctrl键并拖拽鼠标可以移动图片")
+            else:
+                self.image_label.setToolTip("")
+
     def create_language_menu(self):
         """创建语言菜单"""
         self.language_menu = self.settings_menu.addMenu(tr('language'))
@@ -732,16 +1085,26 @@ class MainWindow(QMainWindow):
         for action, code in self.mode_actions:
             action.setChecked(code == mode_code)
 
-        # 根据模式显示/隐藏相应区域
+        # 根据模式显示/隐藏相应区域并调整分割器
         if self.current_mode == "description":
             self.description_frame.setVisible(True)
             self.label_frame.setVisible(False)
+            # 描述模式：只有在首次切换时才设置大小
+            if not hasattr(self, '_splitter_sizes_set'):
+                self.annotation_splitter.setSizes([400, 0])
         elif self.current_mode == "label":
             self.description_frame.setVisible(False)
             self.label_frame.setVisible(True)
+            # 标签模式：只有在首次切换时才设置大小
+            if not hasattr(self, '_splitter_sizes_set'):
+                self.annotation_splitter.setSizes([0, 400])
         elif self.current_mode == "mixed":
             self.description_frame.setVisible(True)
             self.label_frame.setVisible(True)
+            # 混合模式：只有在首次切换时才设置大小，之后保持用户调整的比例
+            if not hasattr(self, '_splitter_sizes_set'):
+                self.annotation_splitter.setSizes([200, 200])
+                self._splitter_sizes_set = True
 
         # 发送模式变化信号
         self.mode_changed.emit(self.current_mode)
@@ -761,9 +1124,6 @@ class MainWindow(QMainWindow):
         """更新菜单文本"""
         # 更新文件菜单
         self.file_menu.setTitle(tr('file_menu'))
-        self.select_dir_action.setText(tr('select_directory'))
-        self.select_save_path_action.setText(tr('set_save_path'))
-        self.exit_action.setText(tr('exit'))
 
         # 更新设置菜单
         self.settings_menu.setTitle(tr('settings_menu'))
@@ -785,7 +1145,9 @@ class MainWindow(QMainWindow):
 
         # 更新帮助菜单
         self.help_menu.setTitle(tr('help_menu'))
-        self.about_action.setText(tr('about'))
+
+        # 重新更新菜单快捷键显示（包含翻译后的文本）
+        self.update_menu_shortcuts()
 
     def update_ui_texts(self):
         """更新界面文本"""

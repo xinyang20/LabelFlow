@@ -147,6 +147,7 @@ class DataManager(QObject):
     loading_progress = pyqtSignal(int, int, str)  # current, total, message
     loading_finished = pyqtSignal()
     hash_calculation_progress = pyqtSignal(int, int, str)
+    current_image_annotation_updated = pyqtSignal()  # 当前图片标注数据更新
     
     # 支持的图片格式
     SUPPORTED_FORMATS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
@@ -172,6 +173,7 @@ class DataManager(QObject):
         self.custom_save_path = ""  # 自定义保存路径
         self.enable_base64 = True  # 是否启用base64编码
         self.max_base64_file_size_mb = self._detect_optimal_file_size_limit()  # 动态检测文件大小限制
+        self.compatibility_mode = False  # 兼容模式（支持V0.0.2格式）
         
     def set_work_directory(self, directory: str):
         """设置工作目录"""
@@ -239,13 +241,163 @@ class DataManager(QObject):
             self.images.append(image_info)
             
         print(f"扫描到 {len(self.images)} 张图片")
-        
+
+        # 检查并还原缺失的图像
+        self.restore_missing_images()
+
         # 根据图片数量调整加载策略
         self.adjust_loading_strategy()
-        
+
         # 开始加载和哈希计算
         self.start_loading()
-        
+
+    def restore_missing_images(self):
+        """检查并还原缺失的图像文件"""
+        if not self.work_directory:
+            return
+
+        restored_count = 0
+        existing_image_names = set()
+
+        # 收集现有图片文件名（不含扩展名）
+        for image_info in self.images:
+            base_name = os.path.splitext(image_info.filename)[0]
+            existing_image_names.add(base_name.lower())
+
+        # 扫描JSON文件，查找缺失的图像
+        for root, dirs, files in os.walk(self.work_directory):
+            for file in files:
+                if file.lower().endswith('.json') and file not in ['labels.json', 'labels_cache.json']:
+                    json_path = os.path.join(root, file)
+                    base_name = os.path.splitext(file)[0]
+
+                    # 检查对应的图像文件是否存在
+                    if base_name.lower() not in existing_image_names:
+                        try:
+                            with open(json_path, 'r', encoding='utf-8') as f:
+                                annotation_data = json.load(f)
+
+                            # 检查是否有base64数据和文件名信息
+                            if ('base64_data' in annotation_data and
+                                annotation_data['base64_data'] and
+                                'filename' in annotation_data):
+
+                                original_filename = annotation_data['filename']
+                                base64_data = annotation_data['base64_data']
+
+                                # 还原图像文件
+                                restored_path = self._restore_image_from_base64(
+                                    base64_data, original_filename, root
+                                )
+
+                                if restored_path:
+                                    # 创建ImageInfo对象并添加到列表
+                                    image_info = ImageInfo(restored_path)
+                                    self.images.append(image_info)
+                                    restored_count += 1
+                                    print(f"已还原图像: {original_filename}")
+
+                        except Exception as e:
+                            print(f"还原图像失败 {file}: {e}")
+                            continue
+
+        if restored_count > 0:
+            print(f"共还原了 {restored_count} 张图片")
+            # 重新排序图片列表
+            self.images.sort(key=lambda x: x.filename.lower())
+
+    def _restore_image_from_base64(self, base64_data: str, filename: str, target_dir: str) -> str:
+        """从base64数据还原图像文件
+
+        Args:
+            base64_data: base64编码的图像数据
+            filename: 原始文件名
+            target_dir: 目标目录
+
+        Returns:
+            str: 还原后的文件路径，失败时返回None
+        """
+        try:
+            # 解码base64数据
+            image_data = base64.b64decode(base64_data)
+
+            # 构建目标文件路径
+            target_path = os.path.join(target_dir, filename)
+
+            # 如果文件已存在，跳过
+            if os.path.exists(target_path):
+                return None
+
+            # 写入文件
+            with open(target_path, 'wb') as f:
+                f.write(image_data)
+
+            return target_path
+
+        except Exception as e:
+            print(f"从base64还原图像失败: {e}")
+            return None
+
+    def _check_and_update_annotation_file(self, image_info: 'ImageInfo'):
+        """检查并更新标注文件中的SHA256和base64数据
+
+        Args:
+            image_info: 图像信息对象
+        """
+        if not image_info.hash:
+            return
+
+        # 构建对应的JSON文件路径
+        base_name = os.path.splitext(image_info.filename)[0]
+        json_filename = f"{base_name}.json"
+
+        # 在工作目录中查找JSON文件
+        json_path = None
+        for root, dirs, files in os.walk(self.work_directory):
+            if json_filename in files:
+                json_path = os.path.join(root, json_filename)
+                break
+
+        if not json_path or not os.path.exists(json_path):
+            return
+
+        try:
+            # 读取现有的标注文件
+            with open(json_path, 'r', encoding='utf-8') as f:
+                annotation_data = json.load(f)
+
+            # 检查SHA256是否一致
+            stored_hash = annotation_data.get('hash', '')
+            if stored_hash and stored_hash != image_info.hash:
+                print(f"检测到SHA256不一致: {image_info.filename}")
+                print(f"  存储的: {stored_hash}")
+                print(f"  计算的: {image_info.hash}")
+
+                # 更新SHA256
+                annotation_data['hash'] = image_info.hash
+
+                # 重新计算base64编码（如果启用）
+                if self.enable_base64:
+                    new_base64_data = image_info.calculate_base64(
+                        self.enable_base64,
+                        self.max_base64_file_size_mb
+                    )
+                    if new_base64_data:
+                        annotation_data['base64_data'] = new_base64_data
+                        print(f"  已更新base64编码")
+
+                # 更新文件大小
+                annotation_data['file_size'] = image_info.get_file_size()
+
+                # 保存更新后的文件
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(annotation_data, f, ensure_ascii=False, indent=2)
+
+                print(f"  已更新标注文件: {json_filename}")
+
+        except Exception as e:
+            print(f"检查标注文件失败 {json_filename}: {e}")
+
     def adjust_loading_strategy(self):
         """根据图片数量调整加载策略"""
         total_images = len(self.images)
@@ -317,29 +469,113 @@ class DataManager(QObject):
         if 0 <= index < len(self.images):
             image_info = self.images[index]
             image_info.hash = hash_value
-            
-            # 从labels_data中加载对应的标注
-            if hash_value in self.labels_data:
+
+            # 检查是否存在对应的标注文件，并验证SHA256
+            self._check_and_update_annotation_file(image_info)
+
+            # 从labels_data中加载对应的标注（如果还没有通过文件名关联）
+            if hash_value in self.labels_data and not image_info.annotation:
                 image_info.annotation = self.labels_data[hash_value]
+                print(f"通过哈希关联标注数据: {image_info.filename}")
+
+            # 如果这是当前显示的图片，发送信号更新界面
+            if index == self.current_index:
+                self.current_image_annotation_updated.emit()
                 
     def on_hash_calculation_finished(self):
         """哈希计算全部完成"""
         print("所有图片哈希计算完成")
-        # 现在定位到第一张未标注的图片
-        self.find_first_unlabeled()
+        # 现在定位到第一张未标注的图片（但不在这里调用，让控制器调用）
         self.loading_finished.emit()
         
     def find_first_unlabeled(self):
-        """找到第一张未标注的图片"""
+        """找到第一张未标注的图片并检测标注模式"""
+        import json  # 在方法开始就导入json模块
+
+        detected_mode = None
+        first_unlabeled_index = None
+
         for i, image_info in enumerate(self.images):
-            # 检查是否有标注内容（从内存中的annotation字段检查）
-            if not image_info.annotation.strip():
-                self.current_index = i
-                print(f"定位到第一张未标注的图片: {i+1}/{len(self.images)} - {image_info.filename}")
-                return
-        # 如果所有图片都已标注，从第一张开始
-        self.current_index = 0
-        print("所有图片都已标注，从第一张开始")
+            # 检查是否有标注内容（考虑JSON格式的标注）
+            has_annotation = False
+            if image_info.annotation and image_info.annotation.strip():
+                try:
+                    # 尝试解析JSON格式的标注
+                    if image_info.annotation.strip().startswith('{'):
+                        parsed = json.loads(image_info.annotation)
+                        # 检查是否有实际的标注内容
+                        has_describe = parsed.get('describe', '').strip()
+                        has_labels = parsed.get('label', []) or parsed.get('labels', [])
+                        has_annotation = bool(has_describe or has_labels)
+                    else:
+                        # 纯文本格式
+                        has_annotation = True
+                except (json.JSONDecodeError, AttributeError):
+                    # 解析失败，按纯文本处理
+                    has_annotation = True
+
+            if not has_annotation:
+                if first_unlabeled_index is None:
+                    first_unlabeled_index = i
+                continue
+
+            # 如果还没有检测到模式，分析当前标注内容来检测模式
+            if detected_mode is None:
+                detected_mode = self._detect_annotation_mode(image_info.annotation)
+
+        # 设置当前索引
+        if first_unlabeled_index is not None:
+            self.current_index = first_unlabeled_index
+            print(f"定位到第一张未标注的图片: {first_unlabeled_index+1}/{len(self.images)} - {self.images[first_unlabeled_index].filename}")
+        else:
+            # 如果所有图片都已标注，从第一张开始
+            self.current_index = 0
+            print("所有图片都已标注，从第一张开始")
+
+        # 返回检测到的模式，供控制器使用
+        return detected_mode
+
+    def _detect_annotation_mode(self, annotation_text: str):
+        """检测标注模式
+
+        Args:
+            annotation_text: 标注文本内容
+
+        Returns:
+            str: 检测到的模式 ("description", "label", "mixed", None)
+        """
+        if not annotation_text.strip():
+            return None
+
+        try:
+            # 尝试解析为JSON格式
+            if annotation_text.strip().startswith('{'):
+                data = json.loads(annotation_text)
+
+                has_describe = bool(data.get("describe", "").strip())
+                has_label = bool(data.get("label", []))
+
+                # 兼容模式：检查V0.0.2格式
+                if self.compatibility_mode and not has_describe and not has_label:
+                    # 检查V0.0.2的annotation字段
+                    old_annotation = data.get("annotation", "").strip()
+                    if old_annotation:
+                        # V0.0.2格式，默认为描述模式
+                        return "description"
+
+                # 根据新字段格式判断模式
+                if has_describe and has_label:
+                    return "mixed"
+                elif has_label:
+                    return "label"
+                elif has_describe:
+                    return "description"
+
+        except json.JSONDecodeError:
+            # 不是JSON格式，按纯文本处理，默认为描述模式
+            return "description"
+
+        return None
         
     def get_current_image_info(self) -> Optional[ImageInfo]:
         """获取当前图片信息"""
@@ -359,6 +595,14 @@ class DataManager(QObject):
         """移动到上一张图片"""
         if self.current_index > 0:
             self.current_index -= 1
+            self.ensure_image_loaded(self.current_index)
+            return True
+        return False
+
+    def jump_to_index(self, index: int) -> bool:
+        """跳转到指定索引的图片"""
+        if 0 <= index < len(self.images):
+            self.current_index = index
             self.ensure_image_loaded(self.current_index)
             return True
         return False
@@ -423,12 +667,12 @@ class DataManager(QObject):
                                 self.available_labels.append(label)
                         self.save_labels_cache()
 
-                    # 保持向后兼容的annotation字段
-                    if 'annotation' in parsed_annotation:
+                    # 兼容模式：保持V0.0.2的annotation字段
+                    if self.compatibility_mode and 'annotation' in parsed_annotation:
                         annotation_data['annotation'] = parsed_annotation['annotation']
 
-                    # 处理旧格式的labels字段
-                    if 'labels' in parsed_annotation and 'label' not in parsed_annotation:
+                    # 兼容模式：处理V0.0.2格式的labels字段
+                    if self.compatibility_mode and 'labels' in parsed_annotation and 'label' not in parsed_annotation:
                         annotation_data['label'] = parsed_annotation['labels']
                         # 将标签添加到可用标签列表
                         for label in parsed_annotation['labels']:
@@ -459,27 +703,31 @@ class DataManager(QObject):
         """从文件加载标签数据"""
         self.labels_data.clear()
 
-        # 首先尝试加载旧格式的labels.json文件（向后兼容）
-        if os.path.exists(self.labels_file):
+        # 兼容模式：加载V0.0.2格式的labels.json文件
+        if self.compatibility_mode and os.path.exists(self.labels_file):
             try:
                 with open(self.labels_file, 'r', encoding='utf-8') as f:
                     self.labels_data = json.load(f)
-                print(f"从旧格式加载了 {len(self.labels_data)} 个标签")
+                print(f"兼容模式：从V0.0.2格式加载了 {len(self.labels_data)} 个标签")
             except Exception as e:
-                print(f"加载旧格式标签文件失败: {e}")
+                print(f"加载V0.0.2格式标签文件失败: {e}")
 
-        # 然后尝试加载新格式的单个JSON文件
+        # 加载V0.0.3+格式的单个JSON文件
         self.load_individual_annotations()
 
     def load_individual_annotations(self):
         """加载单个标注文件"""
+        import json  # 在方法开始就导入json模块
+
         if not self.work_directory:
             return
 
         loaded_count = 0
+        # 创建文件名到标注数据的映射，用于立即关联
+        filename_to_annotation = {}
 
         # 扫描工作目录及其子目录中的JSON文件
-        for root, dirs, files in os.walk(self.work_directory):
+        for root, _, files in os.walk(self.work_directory):
             for file in files:
                 if file.lower().endswith('.json') and file != 'labels.json':
                     json_path = os.path.join(root, file)
@@ -494,22 +742,32 @@ class DataManager(QObject):
                             # 重构标注数据为统一格式
                             reconstructed_data = {}
 
-                            # 优先使用新字段格式
-                            if 'describe' in annotation_data:
+                            # 优先使用新字段格式（V0.0.3+）
+                            if 'describe' in annotation_data and annotation_data['describe']:
                                 reconstructed_data['describe'] = annotation_data['describe']
 
-                            if 'label' in annotation_data:
+                            if 'label' in annotation_data and annotation_data['label']:
                                 reconstructed_data['label'] = annotation_data['label']
 
-                            # 向后兼容旧字段
-                            if 'annotation' in annotation_data:
-                                reconstructed_data['annotation'] = annotation_data['annotation']
+                            # 兼容模式：处理V0.0.2格式的annotation字段
+                            if self.compatibility_mode and 'annotation' in annotation_data:
+                                annotation_content = annotation_data['annotation']
+                                if annotation_content:
+                                    # V0.0.2格式：annotation字段包含实际标注内容
+                                    reconstructed_data['annotation'] = annotation_content
+                                    # 如果没有describe字段，将annotation内容作为describe
+                                    if 'describe' not in reconstructed_data:
+                                        reconstructed_data['describe'] = annotation_content
 
                             # 如果有新字段，将其转换为JSON字符串保存到labels_data
                             if reconstructed_data:
-                                import json
-                                self.labels_data[hash_value] = json.dumps(reconstructed_data, ensure_ascii=False)
+                                annotation_json = json.dumps(reconstructed_data, ensure_ascii=False)
+                                self.labels_data[hash_value] = annotation_json
                                 loaded_count += 1
+
+                                # 同时建立文件名到标注数据的映射
+                                if 'filename' in annotation_data:
+                                    filename_to_annotation[annotation_data['filename']] = annotation_json
 
                                 # 立即提取标签到可用标签列表
                                 if 'label' in reconstructed_data:
@@ -519,7 +777,14 @@ class DataManager(QObject):
 
                     except Exception as e:
                         # 忽略无法解析的JSON文件
+                        print(f"解析JSON文件失败 {file}: {e}")
                         continue
+
+        # 立即将标注数据关联到对应的ImageInfo对象
+        for image_info in self.images:
+            if image_info.filename in filename_to_annotation:
+                image_info.annotation = filename_to_annotation[image_info.filename]
+                print(f"立即关联标注数据: {image_info.filename}")
 
         if loaded_count > 0:
             print(f"从新格式加载了 {loaded_count} 个标签")
@@ -609,12 +874,12 @@ class DataManager(QObject):
                         if 'label' in annotation_data:
                             extracted_labels.update(annotation_data['label'])
 
-                        # 检查旧格式的labels字段
-                        if 'labels' in annotation_data:
+                        # 兼容模式：检查V0.0.2格式的labels字段
+                        if self.compatibility_mode and 'labels' in annotation_data:
                             extracted_labels.update(annotation_data['labels'])
 
-                        # 检查旧annotation字段中的嵌套格式
-                        if 'annotation' in annotation_data:
+                        # 兼容模式：检查V0.0.2的annotation字段中的嵌套格式
+                        if self.compatibility_mode and 'annotation' in annotation_data:
                             annotation = annotation_data['annotation']
                             if annotation and annotation.strip().startswith('{'):
                                 try:
@@ -622,7 +887,7 @@ class DataManager(QObject):
                                     if 'label' in parsed_annotation:
                                         extracted_labels.update(parsed_annotation['label'])
                                     elif 'labels' in parsed_annotation:
-                                        # 向后兼容旧格式
+                                        # V0.0.2格式兼容
                                         extracted_labels.update(parsed_annotation['labels'])
                                 except json.JSONDecodeError:
                                     pass  # 不是JSON格式，跳过
@@ -638,3 +903,113 @@ class DataManager(QObject):
         if extracted_labels:
             print(f"从现有标注中提取了 {len(extracted_labels)} 个标签")
             self.save_labels_cache()
+
+    def rename_all_images(self) -> int:
+        """一键重命名所有图片文件
+
+        Returns:
+            int: 重命名的文件数量
+        """
+        if not self.work_directory:
+            return 0
+
+        renamed_count = 0
+
+        # 收集所有需要重命名的文件
+        image_files = []
+        json_files = []
+
+        # 扫描工作目录
+        for root, dirs, files in os.walk(self.work_directory):
+            for file in files:
+                file_path = os.path.join(root, file)
+
+                # 图片文件
+                if any(file.lower().endswith(ext) for ext in self.SUPPORTED_FORMATS):
+                    image_files.append(file_path)
+                # JSON文件（排除系统文件）
+                elif (file.lower().endswith('.json') and
+                      file not in ['labels.json', 'labels_cache.json', 'keys_setting.json']):
+                    json_files.append(file_path)
+
+        # 按文件名排序，确保重命名顺序一致
+        image_files.sort()
+        json_files.sort()
+
+        # 创建重命名映射
+        rename_map = {}  # 原文件名 -> 新文件名
+
+        # 重命名图片文件
+        for i, old_path in enumerate(image_files):
+            old_filename = os.path.basename(old_path)
+            old_name, ext = os.path.splitext(old_filename)
+
+            # 生成新文件名
+            new_filename = f"IMG_{i:06d}{ext}"
+            new_path = os.path.join(os.path.dirname(old_path), new_filename)
+
+            try:
+                # 如果新文件名与旧文件名相同，跳过
+                if old_filename == new_filename:
+                    continue
+
+                # 如果目标文件已存在，跳过
+                if os.path.exists(new_path):
+                    print(f"目标文件已存在，跳过: {new_filename}")
+                    continue
+
+                # 重命名文件
+                os.rename(old_path, new_path)
+                rename_map[old_name] = f"IMG_{i:06d}"
+                renamed_count += 1
+                print(f"重命名图片: {old_filename} -> {new_filename}")
+
+            except Exception as e:
+                print(f"重命名图片失败 {old_filename}: {e}")
+
+        # 重命名对应的JSON文件并更新内容
+        for json_path in json_files:
+            json_filename = os.path.basename(json_path)
+            json_name, _ = os.path.splitext(json_filename)
+
+            # 检查是否有对应的图片被重命名
+            if json_name in rename_map:
+                new_json_name = rename_map[json_name]
+                new_json_filename = f"{new_json_name}.json"
+                new_json_path = os.path.join(os.path.dirname(json_path), new_json_filename)
+
+                try:
+                    # 读取JSON文件内容
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        json_data = json.load(f)
+
+                    # 更新filename字段
+                    if 'filename' in json_data:
+                        old_img_filename = json_data['filename']
+                        old_img_name, old_img_ext = os.path.splitext(old_img_filename)
+                        if old_img_name in rename_map:
+                            new_img_filename = f"{rename_map[old_img_name]}{old_img_ext}"
+                            json_data['filename'] = new_img_filename
+
+                    # 保存到新文件
+                    with open(new_json_path, 'w', encoding='utf-8') as f:
+                        json.dump(json_data, f, ensure_ascii=False, indent=2)
+
+                    # 删除旧文件
+                    os.remove(json_path)
+                    renamed_count += 1
+                    print(f"重命名JSON: {json_filename} -> {new_json_filename}")
+
+                except Exception as e:
+                    print(f"重命名JSON文件失败 {json_filename}: {e}")
+
+        return renamed_count
+
+    def set_compatibility_mode(self, enabled: bool):
+        """设置兼容模式
+
+        Args:
+            enabled: 是否启用兼容模式（支持V0.0.2格式）
+        """
+        self.compatibility_mode = enabled
+        print(f"兼容模式设置为: {'启用' if enabled else '禁用'}")

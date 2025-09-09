@@ -218,3 +218,5 @@ pyproject.toml
 **/.history/
 
 .augment/
+
+.augmentignore

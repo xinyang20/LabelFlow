@@ -37,11 +37,15 @@ class AppController(QObject):
         self.main_window.annotation_changed.connect(self.on_annotation_changed)
         self.main_window.mode_changed.connect(self.on_mode_changed)
         self.main_window.labels_changed.connect(self.on_labels_changed)
+        self.main_window.jump_to_image.connect(self.on_jump_to_image)
+        self.main_window.rename_images.connect(self.on_rename_images)
+        self.main_window.compatibility_mode_changed.connect(self.on_compatibility_mode_changed)
 
         # 数据管理器信号连接
         self.data_manager.loading_progress.connect(self.on_loading_progress)
         self.data_manager.loading_finished.connect(self.on_loading_finished)
         self.data_manager.hash_calculation_progress.connect(self.on_hash_progress)
+        self.data_manager.current_image_annotation_updated.connect(self.on_current_image_annotation_updated)
 
         # 窗口关闭事件
         self.main_window.closeEvent = self.closeEvent
@@ -75,6 +79,11 @@ class AppController(QObject):
     def on_loading_finished(self):
         """处理加载完成"""
         self.main_window.show_loading_progress(False)
+
+        # 定位到第一张未标注的图片（暂时取消自动恢复标注模式功能）
+        self.data_manager.find_first_unlabeled()
+        print("已定位到第一张未标注的图片")
+
         self.load_available_labels()  # 加载可用标签
         self.update_ui()
         
@@ -82,6 +91,14 @@ class AppController(QObject):
         """处理哈希计算进度"""
         message = f"正在计算哈希值: {filename} ({current}/{total})"
         self.main_window.show_loading_progress(True, current, total, message)
+
+    def on_current_image_annotation_updated(self):
+        """处理当前图片标注数据更新"""
+        # 当前图片的标注数据已更新，刷新界面显示
+        current_image = self.data_manager.get_current_image_info()
+        if current_image and current_image.annotation:
+            print(f"当前图片标注数据已更新: {current_image.filename}")
+            self.main_window.update_annotation(current_image.annotation)
         
     def on_next_image(self):
         """处理下一张图片"""
@@ -189,16 +206,25 @@ class AppController(QObject):
         # 在更新标注前，确保可用标签列表是最新的
         self.load_available_labels()
 
-        self.main_window.update_annotation(current_image.annotation)
-
-        # 如果没有标注内容，重置标签选择状态
-        if not current_image.annotation.strip():
+        # 更新标注内容到界面
+        if current_image.annotation and current_image.annotation.strip():
+            print(f"更新标注内容到界面: {current_image.filename} -> {current_image.annotation[:100]}...")
+            self.main_window.update_annotation(current_image.annotation)
+        else:
+            # 如果没有标注内容，清空界面并重置标签选择状态
+            print(f"清空标注内容: {current_image.filename}")
+            self.main_window.update_annotation("")
             self.main_window.reset_label_selection()
         
         # 更新导航按钮状态
         has_prev = self.data_manager.has_prev()
         has_next = self.data_manager.has_next()
         self.main_window.update_navigation_buttons(has_prev, has_next)
+
+        # 更新文件列表显示
+        file_list = [img.filename for img in self.data_manager.images]
+        current_index = self.data_manager.current_index
+        self.main_window.update_file_list(file_list, current_index)
         
     def closeEvent(self, event):
         """窗口关闭事件"""
@@ -254,6 +280,50 @@ class AppController(QObject):
         self.available_labels = labels[:]
         # 保存标签到数据管理器
         self.data_manager.set_available_labels(labels)
+
+    def on_jump_to_image(self, index: int):
+        """处理跳转到指定图片"""
+        # 检查是否需要保存当前标注
+        if not self._handle_save_before_switch():
+            return  # 用户取消操作
+
+        # 跳转到指定索引
+        if self.data_manager.jump_to_index(index):
+            self.update_ui()
+        else:
+            self.main_window.show_message("错误", "无法跳转到指定图片", "warning")
+
+    def on_rename_images(self):
+        """处理一键重命名图片"""
+        try:
+            # 执行重命名操作
+            renamed_count = self.data_manager.rename_all_images()
+
+            if renamed_count > 0:
+                self.main_window.show_message(
+                    "重命名完成",
+                    f"成功重命名了 {renamed_count} 个文件（包括图片和JSON文件）",
+                    "info"
+                )
+                # 重新扫描目录
+                self.data_manager.scan_images()
+            else:
+                self.main_window.show_message(
+                    "重命名结果",
+                    "没有找到需要重命名的文件",
+                    "info"
+                )
+        except Exception as e:
+            self.main_window.show_message(
+                "重命名失败",
+                f"重命名过程中发生错误：{str(e)}",
+                "error"
+            )
+
+    def on_compatibility_mode_changed(self, enabled: bool):
+        """处理兼容模式变化"""
+        self.data_manager.set_compatibility_mode(enabled)
+        print(f"兼容模式已{'开启' if enabled else '关闭'}")
 
     def load_available_labels(self):
         """加载可用标签列表"""

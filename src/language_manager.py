@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Quick Label - 快捷图片标注工具 - 语言管理模块
+LabelFlow - 快捷图片标注工具 - 语言管理模块
 """
 
 import json
@@ -25,7 +25,7 @@ class LanguageManager(QObject):
         """加载内置翻译"""
         # 中文翻译（默认）
         self.translations["zh_CN"] = {
-            "app_title": "Quick Label - 快捷图片标注工具",
+            "app_title": "LabelFlow - 快捷图片标注工具",
             "file_menu": "文件(&F)",
             "select_directory": "选择工作目录(&O)",
             "set_save_path": "设置标注保存路径(&S)",
@@ -34,7 +34,7 @@ class LanguageManager(QObject):
             "auto_save": "自动保存(&A)",
             "language": "语言(&L)",
             "help_menu": "帮助(&H)",
-            "about": "关于Quick Label(&A)",
+            "about": "关于LabelFlow(&A)",
             "filename": "文件名",
             "progress": "进度",
             "annotation_mode": "标注模式",
@@ -72,7 +72,7 @@ class LanguageManager(QObject):
 
         # 英文翻译
         self.translations["en_US"] = {
-            "app_title": "Quick Label - Image Annotation Tool",
+            "app_title": "LabelFlow - Image Annotation Tool",
             "file_menu": "&File",
             "select_directory": "&Open Work Directory",
             "set_save_path": "&Set Save Path",
@@ -81,7 +81,7 @@ class LanguageManager(QObject):
             "auto_save": "&Auto Save",
             "language": "&Language",
             "help_menu": "&Help",
-            "about": "&About Quick Label",
+            "about": "&About LabelFlow",
             "filename": "Filename",
             "progress": "Progress",
             "annotation_mode": "Annotation Mode",

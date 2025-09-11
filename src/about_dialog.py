@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Quick Label - 快捷图片标注工具 - 关于对话框
+LabelFlow - 快捷图片标注工具 - 关于对话框
 """
 
 import os
@@ -40,7 +40,7 @@ class AboutDialog(QDialog):
             else:
                 # 默认信息
                 return {
-                    "name": "Quick Label",
+                    "name": "LabelFlow",
                     "version": "1.0.0",
                     "description": "快捷图片标注工具",
                     "author": "xinyang20",
@@ -51,7 +51,7 @@ class AboutDialog(QDialog):
             print(f"加载应用信息失败: {e}")
             # 返回默认信息
             return {
-                "name": "Quick Label",
+                "name": "LabelFlow",
                 "version": "1.0.0",
                 "description": "快捷图片标注工具",
                 "author": "xinyang20",
@@ -61,7 +61,7 @@ class AboutDialog(QDialog):
         
     def init_ui(self):
         """初始化UI界面"""
-        self.setWindowTitle("关于 Quick Label")
+        self.setWindowTitle("关于 LabelFlow")
         self.setFixedSize(500, 600)
         self.setModal(True)
         
@@ -108,7 +108,7 @@ class AboutDialog(QDialog):
         title_layout = QVBoxLayout()
         
         # 应用名称
-        app_name = QLabel(self.app_info.get('name', 'Quick Label'))
+        app_name = QLabel(self.app_info.get('name', 'LabelFlow'))
         app_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         app_name_font = QFont()
         app_name_font.setPointSize(24)

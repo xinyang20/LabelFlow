@@ -1,4 +1,4 @@
-# Quick Label - 快捷图片标注工具 V0.0.4
+# LabelFlow - 快捷图片标注工具 V0.0.4-remake
 
 简体中文 | [English](README_EN.md)
 
@@ -244,7 +244,7 @@ V0.0.4版本提供完整的快捷键支持，提高标注效率：
 使用PyInstaller打包为可执行文件：
 
 ```bash
-pyinstaller --name QuickLabel --windowed --onefile src/main.py
+pyinstaller --name LabelFlow --windowed --onefile src/main.py
 ```
 
 ## 许可证

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Quick Label - 快捷图片标注工具 - 应用控制器
+LabelFlow - 快捷图片标注工具 - 应用控制器
 """
 
 from PyQt6.QtCore import QObject, QTimer

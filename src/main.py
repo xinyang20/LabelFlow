@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Quick Label - 快捷图片标注工具 - 主程序入口
+LabelFlow - 快捷图片标注工具 - 主程序入口
 """
 
 import sys
@@ -36,7 +36,7 @@ def load_app_version():
 def main():
     """主程序入口"""
     app = QApplication(sys.argv)
-    app.setApplicationName("Quick Label")
+    app.setApplicationName("LabelFlow")
     app.setApplicationVersion(load_app_version())
     
     # 创建控制器，它会自动创建UI

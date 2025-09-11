@@ -1,5 +1,5 @@
 {
-  "app_title": "Quick Label - Image Annotation Tool",
+  "app_title": "LabelFlow - Image Annotation Tool",
   "file_menu": "&File",
   "select_directory": "&Open Work Directory",
   "set_save_path": "&Set Save Path",
@@ -8,7 +8,7 @@
   "auto_save": "&Auto Save",
   "language": "&Language",
   "help_menu": "&Help",
-  "about": "&About Quick Label",
+  "about": "&About LabelFlow",
   "filename": "Filename",
   "progress": "Progress",
   "annotation_mode": "Annotation Mode",

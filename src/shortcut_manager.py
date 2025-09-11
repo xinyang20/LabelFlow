@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Quick Label - 快捷图片标注工具 - 快捷键管理模块
+LabelFlow - 快捷图片标注工具 - 快捷键管理模块
 """
 
 import os

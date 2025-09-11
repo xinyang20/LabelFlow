@@ -1,4 +1,4 @@
-# Quick Label - Image Annotation Tool V0.0.4
+# LabelFlow - Image Annotation Tool V0.0.4-remake
 
 [简体中文](README.md) | English
 
@@ -242,7 +242,7 @@ The project uses MVC architecture pattern:
 Use PyInstaller to package as executable:
 
 ```bash
-pyinstaller --name QuickLabel --windowed --onefile src/main.py
+pyinstaller --name LabelFlow --windowed --onefile src/main.py
 ```
 
 ## License

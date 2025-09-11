@@ -16,7 +16,7 @@ from PyQt6.QtCore import QUrl
 
 class AboutDialog(QDialog):
     """关于对话框"""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.app_info = self._load_app_info()
@@ -45,7 +45,7 @@ class AboutDialog(QDialog):
                     "description": "快捷图片标注工具",
                     "author": "xinyang20",
                     "email": "gaoxinyang317@gmail.com",
-                    "github": "https://github.com/xinyang20/quick_label"
+                    "github": "https://github.com/xinyang20/LabelFlow",
                 }
         except Exception as e:
             print(f"加载应用信息失败: {e}")
@@ -56,57 +56,57 @@ class AboutDialog(QDialog):
                 "description": "快捷图片标注工具",
                 "author": "xinyang20",
                 "email": "gaoxinyang317@gmail.com",
-                "github": "https://github.com/xinyang20/quick_label"
+                "github": "https://github.com/xinyang20/LabelFlow",
             }
-        
+
     def init_ui(self):
         """初始化UI界面"""
         self.setWindowTitle("关于 LabelFlow")
         self.setFixedSize(500, 600)
         self.setModal(True)
-        
+
         # 主布局
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
-        
+
         # 标题区域
         self.create_title_section(main_layout)
-        
+
         # 分隔线
         line1 = QFrame()
         line1.setFrameShape(QFrame.Shape.HLine)
         line1.setFrameShadow(QFrame.Shadow.Sunken)
         main_layout.addWidget(line1)
-        
+
         # 软件描述区域
         self.create_description_section(main_layout)
-        
+
         # 分隔线
         line2 = QFrame()
         line2.setFrameShape(QFrame.Shape.HLine)
         line2.setFrameShadow(QFrame.Shadow.Sunken)
         main_layout.addWidget(line2)
-        
+
         # 功能特点区域
         self.create_features_section(main_layout)
-        
+
         # 分隔线
         line3 = QFrame()
         line3.setFrameShape(QFrame.Shape.HLine)
         line3.setFrameShadow(QFrame.Shadow.Sunken)
         main_layout.addWidget(line3)
-        
+
         # 开发者信息区域
         self.create_developer_section(main_layout)
-        
+
         # 按钮区域
         self.create_button_section(main_layout)
-        
+
     def create_title_section(self, parent_layout):
         """创建标题区域"""
         title_layout = QVBoxLayout()
-        
+
         # 应用名称
         app_name = QLabel(self.app_info.get('name', 'LabelFlow'))
         app_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -131,53 +131,55 @@ class AboutDialog(QDialog):
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version.setStyleSheet("color: #95a5a6; font-size: 12px;")
         title_layout.addWidget(version)
-        
+
         parent_layout.addLayout(title_layout)
-        
+
     def create_description_section(self, parent_layout):
         """创建软件描述区域"""
         desc_label = QLabel("软件描述")
         desc_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50; margin-bottom: 5px;")
         parent_layout.addWidget(desc_label)
-        
+
         description = QLabel("一款高效、易用的桌面应用程序，用于对图片进行文字描述标注。")
         description.setWordWrap(True)
         description.setStyleSheet("color: #34495e; line-height: 1.4; margin-bottom: 10px;")
         parent_layout.addWidget(description)
-        
+
     def create_features_section(self, parent_layout):
         """创建功能特点区域"""
         features_label = QLabel("功能特点")
         features_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50; margin-bottom: 5px;")
         parent_layout.addWidget(features_label)
-        
+
         features_text = """• 智能图片管理：使用SHA256哈希值确保图片与标签的准确对应
 • 分片加载策略：支持大量图片的高效处理，自动内存管理
 • 实时保存：标注内容自动保存，支持断点续标
 • 直观界面：左右布局，图片显示与标注输入分离
 • 进度跟踪：实时显示标注进度和文件信息"""
-        
+
         features = QLabel(features_text)
         features.setWordWrap(True)
         features.setStyleSheet("color: #34495e; line-height: 1.6; margin-bottom: 10px;")
         parent_layout.addWidget(features)
-        
+
     def create_developer_section(self, parent_layout):
         """创建开发者信息区域"""
         dev_label = QLabel("开发者信息")
         dev_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50; margin-bottom: 5px;")
         parent_layout.addWidget(dev_label)
-        
+
         # 开发者信息布局
         dev_layout = QVBoxLayout()
-        
+
         # GitHub项目地址
         project_layout = QHBoxLayout()
         project_label = QLabel("项目地址：")
         project_label.setStyleSheet("color: #34495e;")
         project_layout.addWidget(project_label)
-        
-        github_url = self.app_info.get('github', 'https://github.com/xinyang20/quick_label')
+
+        github_url = self.app_info.get(
+            "github", "https://github.com/xinyang20/LabelFlow"
+        )
         project_link = QLabel(f'<a href="{github_url}">{github_url}</a>')
         project_link.setOpenExternalLinks(True)
         project_link.setStyleSheet("color: #3498db;")
@@ -216,14 +218,14 @@ class AboutDialog(QDialog):
         email_layout.addStretch()
 
         dev_layout.addLayout(email_layout)
-        
+
         parent_layout.addLayout(dev_layout)
-        
+
     def create_button_section(self, parent_layout):
         """创建按钮区域"""
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-        
+
         # 访问GitHub按钮
         github_button = QPushButton("访问GitHub项目")
         github_button.setStyleSheet("""
@@ -244,7 +246,7 @@ class AboutDialog(QDialog):
         """)
         github_button.clicked.connect(self.open_github)
         button_layout.addWidget(github_button)
-        
+
         # 关闭按钮
         close_button = QPushButton("关闭")
         close_button.setStyleSheet("""
@@ -265,10 +267,12 @@ class AboutDialog(QDialog):
         """)
         close_button.clicked.connect(self.close)
         button_layout.addWidget(close_button)
-        
+
         parent_layout.addLayout(button_layout)
-        
+
     def open_github(self):
         """打开GitHub项目页面"""
-        github_url = self.app_info.get('github', 'https://github.com/xinyang20/quick_label')
+        github_url = self.app_info.get(
+            "github", "https://github.com/xinyang20/LabelFlow"
+        )
         QDesktopServices.openUrl(QUrl(github_url))

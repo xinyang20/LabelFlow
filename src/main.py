@@ -33,12 +33,29 @@ def load_app_version():
         return '1.0.0'
 
 
+def load_stylesheet(app: QApplication):
+    """加载全局样式表"""
+    try:
+        if getattr(sys, 'frozen', False):
+            base_dir = sys._MEIPASS
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        stylesheet_path = os.path.join(base_dir, "styles", "modern.qss")
+        if os.path.exists(stylesheet_path):
+            with open(stylesheet_path, 'r', encoding='utf-8') as f:
+                app.setStyleSheet(f.read())
+    except Exception as exc:
+        print(f"加载样式表失败: {exc}")
+
+
 def main():
     """主程序入口"""
     app = QApplication(sys.argv)
     app.setApplicationName("LabelFlow")
     app.setApplicationVersion(load_app_version())
-    
+    load_stylesheet(app)
+
     # 创建控制器，它会自动创建UI
     controller = AppController()
     controller.show()

@@ -97,6 +97,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("labelFlowMainWindow")
         self.version = self._load_version_info()
         self.auto_save_enabled = True  # 默认开启自动保存
         self.current_mode = "description"  # 当前标注模式：description, label, mixed
@@ -146,11 +147,13 @@ class MainWindow(QMainWindow):
         
         # 创建中央部件
         central_widget = QWidget()
+        central_widget.setObjectName("centralWidget")
         self.setCentralWidget(central_widget)
-        
+
         # 创建主布局（水平分割器）
         main_layout = QHBoxLayout(central_widget)
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setObjectName("mainSplitter")
         main_layout.addWidget(splitter)
         
         # 左侧：图片显示区域
@@ -267,23 +270,19 @@ class MainWindow(QMainWindow):
     def create_image_area(self, parent):
         """创建图片显示区域"""
         image_widget = QWidget()
+        image_widget.setObjectName("imagePanel")
         image_layout = QVBoxLayout(image_widget)
 
         # 图片显示区域（使用滚动区域支持缩放）
         self.image_scroll = QScrollArea()
+        self.image_scroll.setObjectName("imageScrollArea")
         self.image_scroll.setWidgetResizable(True)
         self.image_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.image_label = DraggableImageLabel()
+        self.image_label.setObjectName("imageDisplayLabel")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setStyleSheet("""
-            QLabel {
-                border: 2px solid #cccccc;
-                background-color: #f5f5f5;
-                min-height: 400px;
-                min-width: 600px;
-            }
-        """)
+        self.image_label.setMinimumSize(600, 400)
         self.image_label.setText(tr("select_work_directory_to_start"))
         self.image_label.setScaledContents(False)  # 禁用自动缩放内容
 
@@ -302,35 +301,33 @@ class MainWindow(QMainWindow):
     def create_control_panel(self, parent):
         """创建右侧控制面板"""
         control_widget = QWidget()
+        control_widget.setObjectName("controlPanel")
         control_layout = QVBoxLayout(control_widget)
 
         # 文件信息区域 - 使用固定布局
         info_frame = QFrame()
+        info_frame.setObjectName("infoCard")
         info_frame.setFrameStyle(QFrame.Shape.Box)
-        info_frame.setStyleSheet("QFrame { border: 1px solid #cccccc; border-radius: 3px; padding: 8px; }")
         info_layout = QVBoxLayout(info_frame)
         info_layout.setContentsMargins(8, 8, 8, 8)
         info_layout.setSpacing(4)
 
-        # 统一字号样式
-        label_style = "font-size: 12px; font-weight: normal;"
-
         # 文件名显示
         self.filename_label = QLabel(f"{tr('filename')}: {tr('not_selected')}")
         self.filename_label.setWordWrap(True)
-        self.filename_label.setStyleSheet(label_style)
+        self.filename_label.setProperty("role", "infoPrimary")
         info_layout.addWidget(self.filename_label)
 
         # 哈希值显示 - 预留两行空间
         self.hash_label = QLabel(f"SHA256: {tr('not_calculated')}")
         self.hash_label.setWordWrap(True)
-        self.hash_label.setStyleSheet(f"{label_style} font-family: monospace; min-height: 32px;")
+        self.hash_label.setProperty("role", "infoHash")
         self.hash_label.setMinimumHeight(32)  # 确保有足够空间显示两行
         info_layout.addWidget(self.hash_label)
 
         # 进度显示
         self.progress_label = QLabel(f"{tr('progress')}: 0 / 0")
-        self.progress_label.setStyleSheet(label_style)
+        self.progress_label.setProperty("role", "infoSecondary")
         info_layout.addWidget(self.progress_label)
 
         control_layout.addWidget(info_frame)
@@ -365,18 +362,19 @@ class MainWindow(QMainWindow):
         """创建文件目录显示区域"""
         # 文件列表框架
         file_list_frame = QFrame()
+        file_list_frame.setObjectName("fileListCard")
         file_list_frame.setFrameStyle(QFrame.Shape.Box)
-        file_list_frame.setStyleSheet("QFrame { border: 1px solid #cccccc; border-radius: 3px; }")
         file_list_layout = QVBoxLayout(file_list_frame)
         file_list_layout.setContentsMargins(8, 8, 8, 8)
 
         # 标题
         file_list_label = QLabel("文件目录:")
-        file_list_label.setStyleSheet("font-size: 12px; font-weight: bold;")
+        file_list_label.setProperty("role", "sectionTitle")
         file_list_layout.addWidget(file_list_label)
 
         # 文件列表
         self.file_list_widget = QListWidget()
+        self.file_list_widget.setObjectName("fileList")
         self.file_list_widget.setMaximumHeight(150)
         self.file_list_widget.setMinimumHeight(100)
         self.file_list_widget.itemDoubleClicked.connect(self.on_file_item_double_clicked)
@@ -387,19 +385,21 @@ class MainWindow(QMainWindow):
     def create_status_bar(self):
         """创建状态栏"""
         self.status_bar = self.statusBar()
+        self.status_bar.setObjectName("statusBar")
 
         # 版本号标签（左侧永久显示）
         self.version_label = QLabel(f"v{self.version}")
-        self.version_label.setStyleSheet("color: #666; font-size: 11px; margin-right: 10px;")
+        self.version_label.setObjectName("statusVersionLabel")
         self.status_bar.addPermanentWidget(self.version_label)
 
         # 分隔符
         separator = QLabel("|")
-        separator.setStyleSheet("color: #ccc; margin: 0 5px;")
+        separator.setObjectName("statusSeparator")
         self.status_bar.addPermanentWidget(separator)
 
         # 进度条（右侧）
         self.progress_bar = QProgressBar()
+        self.progress_bar.setObjectName("statusProgress")
         self.progress_bar.setVisible(False)
         self.status_bar.addPermanentWidget(self.progress_bar)
 
@@ -647,47 +647,42 @@ class MainWindow(QMainWindow):
         """创建标注区域 - 使用可拖拽的分割器"""
         # 创建垂直分割器用于标注区域
         self.annotation_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.annotation_splitter.setObjectName("annotationSplitter")
         self.annotation_splitter.setChildrenCollapsible(False)  # 防止子部件被完全折叠
         self.annotation_splitter.setHandleWidth(8)  # 设置拖拽手柄宽度
-        self.annotation_splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #cccccc;
-                border: 1px solid #999999;
-                border-radius: 2px;
-            }
-            QSplitter::handle:hover {
-                background-color: #aaaaaa;
-            }
-        """)
 
         # 描述模式区域
         self.description_frame = QFrame()
+        self.description_frame.setObjectName("annotationCard")
         self.description_frame.setFrameStyle(QFrame.Shape.Box)
-        self.description_frame.setStyleSheet("QFrame { border: 1px solid #cccccc; border-radius: 3px; }")
         desc_layout = QVBoxLayout(self.description_frame)
         desc_layout.setContentsMargins(8, 8, 8, 8)
 
         desc_label = QLabel(f"{tr('annotation_content')}:")
+        desc_label.setProperty("role", "sectionTitle")
         desc_layout.addWidget(desc_label)
 
         self.annotation_text = QTextEdit()
         self.annotation_text.setPlaceholderText(tr("input_description"))
         self.annotation_text.textChanged.connect(self.on_annotation_changed)
         self.annotation_text.setMinimumHeight(100)  # 设置最小高度
+        self.annotation_text.setProperty("role", "annotationInput")
         desc_layout.addWidget(self.annotation_text)
 
         self.annotation_splitter.addWidget(self.description_frame)
 
         # 标签模式区域
         self.label_frame = QFrame()
+        self.label_frame.setObjectName("annotationCard")
         self.label_frame.setFrameStyle(QFrame.Shape.Box)
-        self.label_frame.setStyleSheet("QFrame { border: 1px solid #cccccc; border-radius: 3px; }")
         label_layout = QVBoxLayout(self.label_frame)
         label_layout.setContentsMargins(8, 8, 8, 8)
 
         # 新标签输入
         new_label_layout = QHBoxLayout()
-        new_label_layout.addWidget(QLabel(f"{tr('new_label')}:"))
+        new_label_title = QLabel(f"{tr('new_label')}:")
+        new_label_title.setProperty("role", "sectionTitle")
+        new_label_layout.addWidget(new_label_title)
 
         self.new_label_input = QLineEdit()
         self.new_label_input.setPlaceholderText(tr("input_new_label"))
@@ -702,14 +697,17 @@ class MainWindow(QMainWindow):
 
         # 标签列表区域
         labels_label = QLabel(f"{tr('available_labels')}:")
+        labels_label.setProperty("role", "sectionTitle")
         label_layout.addWidget(labels_label)
 
         # 创建滚动区域用于标签列表
         self.labels_scroll = QScrollArea()
+        self.labels_scroll.setObjectName("labelsScrollArea")
         self.labels_scroll.setWidgetResizable(True)
         self.labels_scroll.setMinimumHeight(100)  # 设置最小高度，移除最大高度限制
 
         self.labels_widget = QWidget()
+        self.labels_widget.setObjectName("labelsContainer")
         self.labels_layout = QVBoxLayout(self.labels_widget)
         self.labels_scroll.setWidget(self.labels_widget)
 
@@ -777,7 +775,7 @@ class MainWindow(QMainWindow):
             # 在标签模式和混合模式下添加快捷键提示
             if self.current_mode in ['label', 'mixed'] and i < 10:
                 shortcut_label = QLabel(f"Ctrl+{i}")
-                shortcut_label.setStyleSheet("color: #888888; font-size: 10px;")
+                shortcut_label.setProperty("role", "shortcutHint")
                 shortcut_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 label_layout.addWidget(shortcut_label)
 
@@ -920,19 +918,21 @@ class MainWindow(QMainWindow):
     def create_zoom_controls(self, parent_layout):
         """创建缩放控制区域"""
         zoom_frame = QFrame()
+        zoom_frame.setObjectName("zoomCard")
         zoom_frame.setFrameStyle(QFrame.Shape.Box)
-        zoom_frame.setStyleSheet("QFrame { border: 1px solid #cccccc; border-radius: 3px; padding: 5px; }")
         zoom_layout = QHBoxLayout(zoom_frame)
         zoom_layout.setContentsMargins(5, 5, 5, 5)
 
         # 缩放标签
         zoom_label = QLabel(f"{tr('zoom')}:")
+        zoom_label.setProperty("role", "sectionTitle")
         zoom_layout.addWidget(zoom_label)
 
         # 缩小按钮
         zoom_out_btn = QPushButton("-")
         zoom_out_btn.setFixedSize(30, 25)
         zoom_out_btn.clicked.connect(self.zoom_out)
+        zoom_out_btn.setProperty("variant", "control")
         zoom_layout.addWidget(zoom_out_btn)
 
         # 缩放滑块
@@ -948,19 +948,21 @@ class MainWindow(QMainWindow):
         zoom_in_btn = QPushButton("+")
         zoom_in_btn.setFixedSize(30, 25)
         zoom_in_btn.clicked.connect(self.zoom_in)
+        zoom_in_btn.setProperty("variant", "control")
         zoom_layout.addWidget(zoom_in_btn)
 
         # 缩放比例显示
         self.zoom_label = QLabel("100%")
         self.zoom_label.setFixedWidth(50)
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.zoom_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        self.zoom_label.setObjectName("zoomValueLabel")
         zoom_layout.addWidget(self.zoom_label)
 
         # 重置按钮
         reset_btn = QPushButton(tr("reset"))
         reset_btn.setFixedSize(50, 25)
         reset_btn.clicked.connect(self.reset_zoom)
+        reset_btn.setProperty("variant", "control")
         zoom_layout.addWidget(reset_btn)
 
         zoom_layout.addStretch()

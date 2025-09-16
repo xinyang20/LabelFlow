@@ -114,7 +114,7 @@ class AboutDialog(QDialog):
         app_name_font.setPointSize(24)
         app_name_font.setBold(True)
         app_name.setFont(app_name_font)
-        app_name.setStyleSheet("color: #2c3e50; margin: 10px 0;")
+        app_name.setObjectName("aboutAppName")
         title_layout.addWidget(app_name)
 
         # 副标题
@@ -123,13 +123,13 @@ class AboutDialog(QDialog):
         subtitle_font = QFont()
         subtitle_font.setPointSize(14)
         subtitle.setFont(subtitle_font)
-        subtitle.setStyleSheet("color: #7f8c8d; margin-bottom: 5px;")
+        subtitle.setObjectName("aboutSubtitle")
         title_layout.addWidget(subtitle)
 
         # 版本信息
         version = QLabel(f"版本 {self.app_info.get('version', '1.0.0')}")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        version.setStyleSheet("color: #95a5a6; font-size: 12px;")
+        version.setObjectName("aboutVersion")
         title_layout.addWidget(version)
 
         parent_layout.addLayout(title_layout)
@@ -137,18 +137,18 @@ class AboutDialog(QDialog):
     def create_description_section(self, parent_layout):
         """创建软件描述区域"""
         desc_label = QLabel("软件描述")
-        desc_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50; margin-bottom: 5px;")
+        desc_label.setProperty("variant", "sectionTitle")
         parent_layout.addWidget(desc_label)
 
         description = QLabel("一款高效、易用的桌面应用程序，用于对图片进行文字描述标注。")
         description.setWordWrap(True)
-        description.setStyleSheet("color: #34495e; line-height: 1.4; margin-bottom: 10px;")
+        description.setProperty("variant", "bodyText")
         parent_layout.addWidget(description)
 
     def create_features_section(self, parent_layout):
         """创建功能特点区域"""
         features_label = QLabel("功能特点")
-        features_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50; margin-bottom: 5px;")
+        features_label.setProperty("variant", "sectionTitle")
         parent_layout.addWidget(features_label)
 
         features_text = """• 智能图片管理：使用SHA256哈希值确保图片与标签的准确对应
@@ -159,13 +159,13 @@ class AboutDialog(QDialog):
 
         features = QLabel(features_text)
         features.setWordWrap(True)
-        features.setStyleSheet("color: #34495e; line-height: 1.6; margin-bottom: 10px;")
+        features.setProperty("variant", "bodyText")
         parent_layout.addWidget(features)
 
     def create_developer_section(self, parent_layout):
         """创建开发者信息区域"""
         dev_label = QLabel("开发者信息")
-        dev_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50; margin-bottom: 5px;")
+        dev_label.setProperty("variant", "sectionTitle")
         parent_layout.addWidget(dev_label)
 
         # 开发者信息布局
@@ -174,15 +174,17 @@ class AboutDialog(QDialog):
         # GitHub项目地址
         project_layout = QHBoxLayout()
         project_label = QLabel("项目地址：")
-        project_label.setStyleSheet("color: #34495e;")
+        project_label.setProperty("variant", "mutedLabel")
         project_layout.addWidget(project_label)
 
         github_url = self.app_info.get(
             "github", "https://github.com/xinyang20/LabelFlow"
         )
-        project_link = QLabel(f'<a href="{github_url}">{github_url}</a>')
+        project_link = QLabel(
+            f'<a href="{github_url}" style="color: inherit; text-decoration: none;">{github_url}</a>'
+        )
         project_link.setOpenExternalLinks(True)
-        project_link.setStyleSheet("color: #3498db;")
+        project_link.setProperty("variant", "link")
         project_layout.addWidget(project_link)
         project_layout.addStretch()
 
@@ -191,14 +193,16 @@ class AboutDialog(QDialog):
         # 开发者GitHub
         dev_github_layout = QHBoxLayout()
         dev_github_label = QLabel("开发者：")
-        dev_github_label.setStyleSheet("color: #34495e;")
+        dev_github_label.setProperty("variant", "mutedLabel")
         dev_github_layout.addWidget(dev_github_label)
 
         author = self.app_info.get('author', 'xinyang20')
         author_github_url = f"https://github.com/{author}/"
-        dev_github_link = QLabel(f'<a href="{author_github_url}">{author}</a>')
+        dev_github_link = QLabel(
+            f'<a href="{author_github_url}" style="color: inherit; text-decoration: none;">{author}</a>'
+        )
         dev_github_link.setOpenExternalLinks(True)
-        dev_github_link.setStyleSheet("color: #3498db;")
+        dev_github_link.setProperty("variant", "link")
         dev_github_layout.addWidget(dev_github_link)
         dev_github_layout.addStretch()
 
@@ -207,13 +211,15 @@ class AboutDialog(QDialog):
         # 联系邮箱
         email_layout = QHBoxLayout()
         email_label = QLabel("联系邮箱：")
-        email_label.setStyleSheet("color: #34495e;")
+        email_label.setProperty("variant", "mutedLabel")
         email_layout.addWidget(email_label)
 
         email = self.app_info.get('email', 'gaoxinyang317@gmail.com')
-        email_link = QLabel(f'<a href="mailto:{email}">{email}</a>')
+        email_link = QLabel(
+            f'<a href="mailto:{email}" style="color: inherit; text-decoration: none;">{email}</a>'
+        )
         email_link.setOpenExternalLinks(True)
-        email_link.setStyleSheet("color: #3498db;")
+        email_link.setProperty("variant", "link")
         email_layout.addWidget(email_link)
         email_layout.addStretch()
 
@@ -228,43 +234,12 @@ class AboutDialog(QDialog):
 
         # 访问GitHub按钮
         github_button = QPushButton("访问GitHub项目")
-        github_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #2980b9;
-            }
-            QPushButton:pressed {
-                background-color: #21618c;
-            }
-        """)
         github_button.clicked.connect(self.open_github)
         button_layout.addWidget(github_button)
 
         # 关闭按钮
         close_button = QPushButton("关闭")
-        close_button.setStyleSheet("""
-            QPushButton {
-                background-color: #95a5a6;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #7f8c8d;
-            }
-            QPushButton:pressed {
-                background-color: #6c7b7d;
-            }
-        """)
+        close_button.setProperty("buttonRole", "secondary")
         close_button.clicked.connect(self.close)
         button_layout.addWidget(close_button)
 

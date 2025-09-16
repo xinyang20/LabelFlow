@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-LabelFlow - 快捷图片标注工具 - 应用控制器
-"""
+"""LabelFlow - 快捷图片标注工具 - 应用控制器"""
+
+import os
+import sys
 
 from PyQt6.QtCore import QObject, QTimer
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -25,6 +26,7 @@ class AppController(QObject):
 
         self.setup_connections()
         self.setup_auto_save()
+        self.apply_stylesheet()
         
     def setup_connections(self):
         """设置信号连接"""
@@ -54,7 +56,35 @@ class AppController(QObject):
         """设置自动保存"""
         self.auto_save_timer.timeout.connect(self.auto_save_annotation)
         self.auto_save_timer.setSingleShot(True)
-        
+
+    def apply_stylesheet(self):
+        """加载并应用全局样式表"""
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        try:
+            QApplication.setStyle("Fusion")
+
+            base_dir = getattr(sys, "_MEIPASS", None)
+            if base_dir is None:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+
+            style_path = os.path.join(base_dir, "styles", "app.qss")
+
+            if not os.path.exists(style_path):
+                fallback_path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "styles", "app.qss"
+                )
+                if os.path.exists(fallback_path):
+                    style_path = fallback_path
+
+            if os.path.exists(style_path):
+                with open(style_path, "r", encoding="utf-8") as style_file:
+                    app.setStyleSheet(style_file.read())
+        except Exception as exc:
+            print(f"加载样式表失败: {exc}")
+
     def show(self):
         """显示主窗口"""
         self.main_window.show()

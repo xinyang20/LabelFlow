@@ -5,45 +5,38 @@ LabelFlow - 快捷图片标注工具 - 主程序入口
 """
 
 import sys
-import os
-import json
 from PyQt6.QtWidgets import QApplication
+from config_manager import config_manager
+from logger_manager import logger_manager
 from app_controller import AppController
-
-
-def load_app_version():
-    """从app.info文件加载版本信息"""
-    try:
-        # 获取资源文件路径（兼容PyInstaller打包）
-        if getattr(sys, 'frozen', False):
-            # 打包后的环境
-            current_dir = sys._MEIPASS
-        else:
-            # 开发环境
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-        app_info_path = os.path.join(current_dir, "app.info")
-
-        if os.path.exists(app_info_path):
-            with open(app_info_path, 'r', encoding='utf-8') as f:
-                app_info = json.load(f)
-                return app_info.get('version', '1.0.0')
-        else:
-            return '1.0.0'
-    except Exception:
-        return '1.0.0'
 
 
 def main():
     """主程序入口"""
+    # 初始化日志系统
+    logger_config = config_manager.get_logging_config()
+    logger_manager.setup_logger(logger_config)
+    logger_manager.log_app_start()
+
+    # 创建Qt应用
     app = QApplication(sys.argv)
-    app.setApplicationName("LabelFlow")
-    app.setApplicationVersion(load_app_version())
-    
+
+    # 获取应用信息
+    app_info = config_manager.get_app_info()
+    app.setApplicationName(app_info.get('name', 'LabelFlow'))
+    app.setApplicationVersion(app_info.get('version', '0.0.5'))
+
     # 创建控制器，它会自动创建UI
     controller = AppController()
     controller.show()
-    
-    sys.exit(app.exec())
+
+    # 运行应用
+    exit_code = app.exec()
+
+    # 记录应用退出
+    logger_manager.log_app_exit()
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

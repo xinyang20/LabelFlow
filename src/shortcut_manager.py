@@ -4,93 +4,54 @@
 LabelFlow - 快捷图片标注工具 - 快捷键管理模块
 """
 
-import os
-import sys
-import json
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import QWidget
+from config_manager import config_manager
 
 
 class ShortcutManager(QObject):
     """快捷键管理器"""
-    
+
     # 快捷键触发信号
     shortcut_triggered = pyqtSignal(str)  # 功能名称
-    
+
     def __init__(self, parent_widget: QWidget):
         super().__init__()
         self.parent_widget = parent_widget
         self.shortcuts: Dict[str, QShortcut] = {}
-        self.config_file = self._get_config_file_path()
-        self.default_shortcuts = self._get_default_shortcuts()
         self.current_shortcuts = {}
-        
+
         # 加载快捷键配置
         self.load_shortcuts()
-        
-    def _get_config_file_path(self) -> str:
-        """获取配置文件路径"""
-        # 获取程序目录
-        if getattr(sys, 'frozen', False):
-            # 打包后的环境
-            app_dir = os.path.dirname(sys.executable)
-        else:
-            # 开发环境
-            app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        return os.path.join(app_dir, "keys_setting.json")
-    
-    def _get_default_shortcuts(self) -> Dict[str, str]:
-        """获取默认快捷键配置"""
-        return {
-            "Open Directory": "Ctrl+O",
-            "Set Save Path": "Ctrl+S", 
-            "Exit": "Ctrl+Q",
-            "About Page": "Ctrl+A",
-            "Previous Image": "Ctrl+Left",
-            "Next Image": "Ctrl+Right",
-            "Label 0": "Ctrl+0",
-            "Label 1": "Ctrl+1",
-            "Label 2": "Ctrl+2",
-            "Label 3": "Ctrl+3",
-            "Label 4": "Ctrl+4",
-            "Label 5": "Ctrl+5",
-            "Label 6": "Ctrl+6",
-            "Label 7": "Ctrl+7",
-            "Label 8": "Ctrl+8",
-            "Label 9": "Ctrl+9"
-        }
-    
+
     def load_shortcuts(self):
-        """加载快捷键配置"""
-        # 先使用默认配置
-        self.current_shortcuts = self.default_shortcuts.copy()
-        
-        # 尝试从文件加载
-        if os.path.exists(self.config_file):
-            try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    file_shortcuts = json.load(f)
-                    # 更新配置（保留默认值，只覆盖文件中存在的）
-                    self.current_shortcuts.update(file_shortcuts)
-                print(f"已加载快捷键配置: {self.config_file}")
-            except Exception as e:
-                print(f"加载快捷键配置失败: {e}")
-        else:
-            # 创建默认配置文件
-            self.save_shortcuts()
-            
+        """从ConfigManager加载快捷键配置"""
+        # 从ConfigManager获取快捷键配置
+        self.current_shortcuts = config_manager.get_shortcuts_config().copy()
+        print(f"已加载快捷键配置，共 {len(self.current_shortcuts)} 个快捷键")
+
+        # 检查快捷键冲突
+        conflicts = self.check_conflicts()
+        if conflicts:
+            print(f"警告: 发现 {len(conflicts)} 个快捷键冲突:")
+            for key, functions in conflicts.items():
+                print(f"  {key}: {', '.join(functions)}")
+
         # 应用快捷键
         self.apply_shortcuts()
-    
+
     def save_shortcuts(self):
-        """保存快捷键配置到文件"""
+        """保存快捷键配置到ConfigManager"""
         try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.current_shortcuts, f, ensure_ascii=False, indent=2)
-            print(f"已保存快捷键配置: {self.config_file}")
+            # 更新config中的快捷键配置
+            for function_name, key_sequence in self.current_shortcuts.items():
+                config_manager.set(f'shortcuts.{function_name}', key_sequence)
+
+            # 保存配置文件
+            config_manager.save_config()
+            print("已保存快捷键配置到config.json")
         except Exception as e:
             print(f"保存快捷键配置失败: {e}")
     
@@ -137,6 +98,60 @@ class ShortcutManager(QObject):
     
     def reset_to_default(self):
         """重置为默认快捷键"""
-        self.current_shortcuts = self.default_shortcuts.copy()
+        self.current_shortcuts = config_manager._get_default_config()['shortcuts'].copy()
         self.apply_shortcuts()
         self.save_shortcuts()
+
+    def check_conflicts(self) -> Dict[str, List[str]]:
+        """检查快捷键冲突
+
+        Returns:
+            冲突字典，键为快捷键，值为使用该快捷键的功能列表
+        """
+        conflicts = {}
+        key_to_functions = {}
+
+        for function_name, key_sequence in self.current_shortcuts.items():
+            if not key_sequence:
+                continue
+
+            if key_sequence not in key_to_functions:
+                key_to_functions[key_sequence] = []
+            key_to_functions[key_sequence].append(function_name)
+
+        # 找出冲突的快捷键（多于1个功能使用）
+        for key_sequence, functions in key_to_functions.items():
+            if len(functions) > 1:
+                conflicts[key_sequence] = functions
+
+        return conflicts
+
+    def validate_shortcut(self, key_sequence: str) -> bool:
+        """验证快捷键序列是否有效
+
+        Args:
+            key_sequence: 快捷键序列字符串
+
+        Returns:
+            是否有效
+        """
+        try:
+            seq = QKeySequence(key_sequence)
+            return not seq.isEmpty()
+        except Exception:
+            return False
+
+    def get_conflicts_for_key(self, key_sequence: str) -> List[str]:
+        """获取指定快捷键的冲突列表
+
+        Args:
+            key_sequence: 快捷键序列
+
+        Returns:
+            使用该快捷键的功能列表
+        """
+        functions = []
+        for function_name, seq in self.current_shortcuts.items():
+            if seq == key_sequence:
+                functions.append(function_name)
+        return functions

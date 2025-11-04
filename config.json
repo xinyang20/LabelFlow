@@ -1,0 +1,63 @@
+{
+  "app": {
+    "name": "LabelFlow",
+    "version": "0.0.5",
+    "description": "快捷图片标注工具",
+    "icon_path": "build_icon.ico",
+    "author": "xinyang20",
+    "email": "gaoxinyang317@gmail.com",
+    "github": "https://github.com/xinyang20/LabelFlow",
+    "license": "MIT"
+  },
+  "performance": {
+    "max_memory_mb": 1024,
+    "batch_size": 100,
+    "min_batch_size": 20,
+    "max_undo_steps": 50,
+    "enable_base64": true,
+    "max_base64_file_size_mb": 10,
+    "preload_count": 2,
+    "cache_size": 100
+  },
+  "ui": {
+    "language": "zh_CN",
+    "window_width": 1200,
+    "window_height": 800,
+    "theme": "default",
+    "default_annotation_mode": "description",
+    "auto_save_enabled": true
+  },
+  "logging": {
+    "enabled": true,
+    "log_file": "logs/labelflow.log",
+    "max_size_mb": 10,
+    "backup_count": 3,
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  },
+  "shortcuts": {
+    "Open Directory": "Ctrl+O",
+    "Set Save Path": "Ctrl+S",
+    "Exit": "Ctrl+Q",
+    "About Page": "Ctrl+A",
+    "Previous Image": "Ctrl+Left",
+    "Next Image": "Ctrl+Right",
+    "Quick Save": "Ctrl+Return",
+    "Toggle Auto Save": "Ctrl+T",
+    "Clear Annotation": "Ctrl+D",
+    "Copy From Previous": "Ctrl+Shift+C",
+    "Undo": "Ctrl+Z",
+    "Redo": "Ctrl+Y",
+    "Show Shortcuts Help": "Ctrl+/",
+    "Label 0": "Ctrl+0",
+    "Label 1": "Ctrl+1",
+    "Label 2": "Ctrl+2",
+    "Label 3": "Ctrl+3",
+    "Label 4": "Ctrl+4",
+    "Label 5": "Ctrl+5",
+    "Label 6": "Ctrl+6",
+    "Label 7": "Ctrl+7",
+    "Label 8": "Ctrl+8",
+    "Label 9": "Ctrl+9"
+  }
+}

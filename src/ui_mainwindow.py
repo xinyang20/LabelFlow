@@ -17,6 +17,7 @@ from PyQt6.QtGui import QPixmap, QAction, QWheelEvent, QMouseEvent
 from about_dialog import AboutDialog
 from language_manager import language_manager, tr
 from shortcut_manager import ShortcutManager
+from config_manager import config_manager
 
 
 class DraggableImageLabel(QLabel):
@@ -94,12 +95,22 @@ class MainWindow(QMainWindow):
     jump_to_image = pyqtSignal(int)  # 跳转到指定图片信号
     rename_images = pyqtSignal()  # 一键重命名图片信号
     compatibility_mode_changed = pyqtSignal(bool)  # 兼容模式变化信号
+    undo = pyqtSignal()  # 撤销信号
+    redo = pyqtSignal()  # 重做信号
+    quick_save = pyqtSignal()  # 快速保存信号
+    clear_annotation = pyqtSignal()  # 清空标注信号
+    copy_from_previous = pyqtSignal()  # 复制上一张标注信号
+    toggle_auto_save_mode = pyqtSignal()  # 切换自动保存模式信号
 
     def __init__(self):
         super().__init__()
-        self.version = self._load_version_info()
-        self.auto_save_enabled = True  # 默认开启自动保存
-        self.current_mode = "description"  # 当前标注模式：description, label, mixed
+        # 从ConfigManager获取配置
+        app_info = config_manager.get_app_info()
+        ui_config = config_manager.get_ui_config()
+
+        self.version = app_info.get('version', '0.0.5')
+        self.auto_save_enabled = ui_config.get('auto_save_enabled', True)
+        self.current_mode = ui_config.get('default_annotation_mode', 'description')
         self.available_labels = []  # 可用标签列表
         self.selected_labels = []  # 当前选中的标签
         self.zoom_factor = 100  # 当前缩放比例（百分比）
@@ -113,33 +124,15 @@ class MainWindow(QMainWindow):
         # 延迟初始化快捷键管理器，确保UI完全创建后再绑定
         self.init_shortcuts()
 
-    def _load_version_info(self):
-        """从app.info文件加载版本信息"""
-        try:
-            # 获取资源文件路径（兼容PyInstaller打包）
-            if getattr(sys, 'frozen', False):
-                # 打包后的环境
-                current_dir = sys._MEIPASS
-            else:
-                # 开发环境
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-
-            app_info_path = os.path.join(current_dir, "app.info")
-
-            if os.path.exists(app_info_path):
-                with open(app_info_path, 'r', encoding='utf-8') as f:
-                    app_info = json.load(f)
-                    return app_info.get('version', '1.0.0')
-            else:
-                return '1.0.0'
-        except Exception as e:
-            print(f"加载版本信息失败: {e}")
-            return '1.0.0'
-        
     def init_ui(self):
         """初始化UI界面"""
         self.setWindowTitle(tr("app_title"))
-        self.setGeometry(100, 100, 1200, 800)
+
+        # 从配置获取窗口大小
+        ui_config = config_manager.get_ui_config()
+        window_width = ui_config.get('window_width', 1200)
+        window_height = ui_config.get('window_height', 800)
+        self.setGeometry(100, 100, window_width, window_height)
         
         # 创建菜单栏
         self.create_menu_bar()
@@ -202,6 +195,38 @@ class MainWindow(QMainWindow):
         self.exit_action = QAction(tr('exit'), self)
         self.exit_action.triggered.connect(self.close)
         self.file_menu.addAction(self.exit_action)
+
+        # 编辑菜单
+        self.edit_menu = menubar.addMenu("编辑")
+
+        # 撤销动作
+        self.undo_action = QAction("撤销", self)
+        self.undo_action.triggered.connect(self.on_undo)
+        self.undo_action.setEnabled(False)  # 初始禁用
+        self.edit_menu.addAction(self.undo_action)
+
+        # 重做动作
+        self.redo_action = QAction("重做", self)
+        self.redo_action.triggered.connect(self.on_redo)
+        self.redo_action.setEnabled(False)  # 初始禁用
+        self.edit_menu.addAction(self.redo_action)
+
+        self.edit_menu.addSeparator()
+
+        # 快速保存动作
+        self.quick_save_action = QAction("快速保存", self)
+        self.quick_save_action.triggered.connect(self.on_quick_save)
+        self.edit_menu.addAction(self.quick_save_action)
+
+        # 清空标注动作
+        self.clear_annotation_action = QAction("清空标注", self)
+        self.clear_annotation_action.triggered.connect(self.on_clear_annotation)
+        self.edit_menu.addAction(self.clear_annotation_action)
+
+        # 复制上一张标注动作
+        self.copy_previous_action = QAction("复制上一张标注", self)
+        self.copy_previous_action.triggered.connect(self.on_copy_previous)
+        self.edit_menu.addAction(self.copy_previous_action)
 
         # 设置菜单
         self.settings_menu = menubar.addMenu(tr('settings_menu'))
@@ -522,6 +547,18 @@ class MainWindow(QMainWindow):
             self.on_next_clicked()
         elif function_name == "About Page":
             self.show_about_dialog()
+        elif function_name == "Undo":
+            self.on_undo()
+        elif function_name == "Redo":
+            self.on_redo()
+        elif function_name == "Quick Save":
+            self.on_quick_save()
+        elif function_name == "Toggle Auto Save":
+            self.on_toggle_auto_save()
+        elif function_name == "Clear Annotation":
+            self.on_clear_annotation()
+        elif function_name == "Copy From Previous":
+            self.on_copy_previous()
         elif function_name.startswith("Label ") and self.current_mode in ["label", "mixed"]:
             # 处理数字标签快捷键
             try:
@@ -1228,6 +1265,84 @@ class MainWindow(QMainWindow):
             self.prev_button.setText(tr("prev"))
         if hasattr(self, 'next_button'):
             self.next_button.setText(tr("next"))
+
+    def on_undo(self):
+        """撤销操作"""
+        self.undo.emit()
+
+    def on_redo(self):
+        """重做操作"""
+        self.redo.emit()
+
+    def on_quick_save(self):
+        """快速保存"""
+        self.quick_save.emit()
+
+    def on_toggle_auto_save(self):
+        """切换自动保存模式"""
+        # 切换状态
+        self.auto_save_enabled = not self.auto_save_enabled
+        self.auto_save_action.setChecked(self.auto_save_enabled)
+        self.auto_save_changed.emit(self.auto_save_enabled)
+        # 显示提示
+        status = "已开启" if self.auto_save_enabled else "已关闭"
+        QMessageBox.information(self, "自动保存", f"自动保存{status}")
+
+    def on_clear_annotation(self):
+        """清空当前标注"""
+        reply = QMessageBox.question(
+            self,
+            "确认",
+            "确定要清空当前图片的标注吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.clear_annotation.emit()
+
+    def on_copy_previous(self):
+        """复制上一张图片的标注"""
+        self.copy_from_previous.emit()
+
+    def update_undo_redo_state(self, can_undo: bool, can_redo: bool):
+        """更新撤销/重做按钮状态
+
+        Args:
+            can_undo: 是否可以撤销
+            can_redo: 是否可以重做
+        """
+        if hasattr(self, 'undo_action'):
+            self.undo_action.setEnabled(can_undo)
+        if hasattr(self, 'redo_action'):
+            self.redo_action.setEnabled(can_redo)
+
+    def update_label_selection(self, labels: list):
+        """更新标签选择状态（用于撤销/重做）
+
+        Args:
+            labels: 要选中的标签列表
+        """
+        if self.current_mode in ["label", "mixed"]:
+            # 清空当前选择
+            self.selected_labels.clear()
+
+            # 重新选中标签
+            for label in labels:
+                if label in self.available_labels:
+                    self.selected_labels.append(label)
+
+            # 更新UI显示
+            if hasattr(self, 'label_checkboxes'):
+                for checkbox in self.label_checkboxes:
+                    label_text = checkbox.text()
+                    checkbox.setChecked(label_text in self.selected_labels)
+
+    def reset_label_selection(self):
+        """重置标签选择状态"""
+        self.selected_labels.clear()
+        if hasattr(self, 'label_checkboxes'):
+            for checkbox in self.label_checkboxes:
+                checkbox.setChecked(False)
 
     def eventFilter(self, obj, event):
         """事件过滤器，处理Ctrl+滚轮缩放"""

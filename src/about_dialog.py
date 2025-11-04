@@ -4,14 +4,12 @@
 LabelFlow - 快捷图片标注工具 - 关于对话框
 """
 
-import os
-import sys
-import json
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QTextEdit, QFrame)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QPixmap, QDesktopServices
 from PyQt6.QtCore import QUrl
+from config_manager import config_manager
 
 
 class AboutDialog(QDialog):
@@ -19,45 +17,9 @@ class AboutDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.app_info = self._load_app_info()
+        # 从ConfigManager获取应用信息
+        self.app_info = config_manager.get_app_info()
         self.init_ui()
-
-    def _load_app_info(self):
-        """从app.info文件加载应用信息"""
-        try:
-            # 获取资源文件路径（兼容PyInstaller打包）
-            if getattr(sys, 'frozen', False):
-                # 打包后的环境
-                current_dir = sys._MEIPASS
-            else:
-                # 开发环境
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-            app_info_path = os.path.join(current_dir, "app.info")
-
-            if os.path.exists(app_info_path):
-                with open(app_info_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            else:
-                # 默认信息
-                return {
-                    "name": "LabelFlow",
-                    "version": "1.0.0",
-                    "description": "快捷图片标注工具",
-                    "author": "xinyang20",
-                    "email": "gaoxinyang317@gmail.com",
-                    "github": "https://github.com/xinyang20/LabelFlow",
-                }
-        except Exception as e:
-            print(f"加载应用信息失败: {e}")
-            # 返回默认信息
-            return {
-                "name": "LabelFlow",
-                "version": "1.0.0",
-                "description": "快捷图片标注工具",
-                "author": "xinyang20",
-                "email": "gaoxinyang317@gmail.com",
-                "github": "https://github.com/xinyang20/LabelFlow",
-            }
 
     def init_ui(self):
         """初始化UI界面"""

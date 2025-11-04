@@ -13,6 +13,7 @@ from typing import List, Dict, Optional
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, QMutex
 from PyQt6.QtGui import QPixmap
 from PIL import Image
+from config_manager import config_manager
 
 
 class ImageInfo:
@@ -142,23 +143,27 @@ class HashCalculationThread(QThread):
 
 class DataManager(QObject):
     """数据管理器"""
-    
+
     # 信号定义
     loading_progress = pyqtSignal(int, int, str)  # current, total, message
     loading_finished = pyqtSignal()
     hash_calculation_progress = pyqtSignal(int, int, str)
     current_image_annotation_updated = pyqtSignal()  # 当前图片标注数据更新
-    
+
     # 支持的图片格式
     SUPPORTED_FORMATS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
-    
-    # 内存管理配置
-    MAX_MEMORY_MB = 1024  # 最大内存使用量（MB）
-    DEFAULT_BATCH_SIZE = 100  # 默认批次大小
-    MIN_BATCH_SIZE = 20  # 最小批次大小
-    
+
     def __init__(self):
         super().__init__()
+        # 从ConfigManager获取性能配置
+        perf_config = config_manager.get_performance_config()
+
+        # 内存管理配置
+        self.MAX_MEMORY_MB = perf_config.get('max_memory_mb', 1024)
+        self.DEFAULT_BATCH_SIZE = perf_config.get('batch_size', 100)
+        self.MIN_BATCH_SIZE = perf_config.get('min_batch_size', 20)
+
+        # 数据成员
         self.images: List[ImageInfo] = []
         self.current_index = 0
         self.work_directory = ""
@@ -171,8 +176,8 @@ class DataManager(QObject):
         self.loaded_images_count = 0
         self.batch_size = self.DEFAULT_BATCH_SIZE
         self.custom_save_path = ""  # 自定义保存路径
-        self.enable_base64 = True  # 是否启用base64编码
-        self.max_base64_file_size_mb = self._detect_optimal_file_size_limit()  # 动态检测文件大小限制
+        self.enable_base64 = perf_config.get('enable_base64', True)
+        self.max_base64_file_size_mb = perf_config.get('max_base64_file_size_mb', 10)
         self.compatibility_mode = False  # 兼容模式（支持V0.0.2格式）
         
     def set_work_directory(self, directory: str):

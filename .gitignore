@@ -217,6 +217,10 @@ pyproject.toml
 # history files
 **/.history/
 
-.augment/
+.docs/
 
-.augmentignore
+CLAUDE.md
+
+AGENTS.md
+
+update_info.md

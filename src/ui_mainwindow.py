@@ -494,7 +494,8 @@ class MainWindow(QMainWindow):
             "一键重命名功能将会：\n\n"
             "1. 将工作目录下的所有图像文件重命名为 IMG_000000.xxx 格式\n"
             "2. 同步修改对应的JSON标注文件名称和内部filename字段\n"
-            "3. 此操作不可逆，原文件名将永久丢失\n\n"
+            "3. 执行前会检查目标冲突，发现风险会中止\n"
+            "4. 成功完成后原文件名将被替换\n\n"
             "确定要继续吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
@@ -1285,8 +1286,8 @@ class MainWindow(QMainWindow):
         self.auto_save_action.setChecked(self.auto_save_enabled)
         self.auto_save_changed.emit(self.auto_save_enabled)
         # 显示提示
-        status = "已开启" if self.auto_save_enabled else "已关闭"
-        QMessageBox.information(self, "自动保存", f"自动保存{status}")
+        status = tr("auto_save_enabled") if self.auto_save_enabled else tr("auto_save_disabled")
+        QMessageBox.information(self, tr("auto_save"), status)
 
     def on_clear_annotation(self):
         """清空当前标注"""
@@ -1322,27 +1323,18 @@ class MainWindow(QMainWindow):
         Args:
             labels: 要选中的标签列表
         """
-        if self.current_mode in ["label", "mixed"]:
-            # 清空当前选择
-            self.selected_labels.clear()
+        self.selected_labels.clear()
 
-            # 重新选中标签
-            for label in labels:
-                if label in self.available_labels:
-                    self.selected_labels.append(label)
+        for label in labels:
+            if label in self.available_labels:
+                self.selected_labels.append(label)
 
-            # 更新UI显示
-            if hasattr(self, 'label_checkboxes'):
-                for checkbox in self.label_checkboxes:
-                    label_text = checkbox.text()
-                    checkbox.setChecked(label_text in self.selected_labels)
+        self.update_labels_display()
 
     def reset_label_selection(self):
         """重置标签选择状态"""
         self.selected_labels.clear()
-        if hasattr(self, 'label_checkboxes'):
-            for checkbox in self.label_checkboxes:
-                checkbox.setChecked(False)
+        self.update_labels_display()
 
     def eventFilter(self, obj, event):
         """事件过滤器，处理Ctrl+滚轮缩放"""

@@ -1,0 +1,18 @@
+[project]
+name = "labelflow"
+version = "0.0.5"
+description = "快捷图片标注工具"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pillow>=12.2.0",
+    "psutil>=7.2.2",
+    "pyqt6>=6.11.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.20.0",
+    "pytest>=9.0.3",
+    "pytest-qt>=4.5.0",
+]

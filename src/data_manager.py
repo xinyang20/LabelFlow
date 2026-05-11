@@ -152,6 +152,7 @@ class DataManager(QObject):
 
     # 支持的图片格式
     SUPPORTED_FORMATS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
+    SYSTEM_JSON_FILES = {'labels.json', 'labels_cache.json', 'keys_setting.json'}
 
     def __init__(self):
         super().__init__()
@@ -619,16 +620,24 @@ class DataManager(QObject):
             if not image_info.is_loaded:
                 image_info.load_image()
                 
-    def save_annotation(self, annotation: str):
+    def save_annotation(self, annotation: str) -> bool:
         """保存当前图片的标注"""
         current_image = self.get_current_image_info()
-        if current_image and current_image.hash:
-            current_image.annotation = annotation
-            self.labels_data[current_image.hash] = annotation
-            # 保存单个JSON文件
-            self.save_single_annotation(current_image)
+        if not current_image:
+            return False
 
-    def save_single_annotation(self, image_info: 'ImageInfo'):
+        if not current_image.hash:
+            current_image.calculate_hash()
+
+        if not current_image.hash:
+            return False
+
+        current_image.annotation = annotation or ""
+        self.labels_data[current_image.hash] = current_image.annotation
+        # 保存单个JSON文件
+        return self.save_single_annotation(current_image)
+
+    def save_single_annotation(self, image_info: 'ImageInfo') -> bool:
         """保存单个图片的标注文件"""
         try:
             # 确定保存路径
@@ -700,9 +709,11 @@ class DataManager(QObject):
             # 保存JSON文件
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(annotation_data, f, ensure_ascii=False, indent=2)
+            return True
 
         except Exception as e:
             print(f"保存标注文件失败: {image_info.filename}, 错误: {e}")
+            return False
             
     def load_labels(self):
         """从文件加载标签数据"""
@@ -909,106 +920,244 @@ class DataManager(QObject):
             print(f"从现有标注中提取了 {len(extracted_labels)} 个标签")
             self.save_labels_cache()
 
-    def rename_all_images(self) -> int:
-        """一键重命名所有图片文件
-
-        Returns:
-            int: 重命名的文件数量
-        """
-        if not self.work_directory:
-            return 0
-
-        renamed_count = 0
-
-        # 收集所有需要重命名的文件
+    def _collect_rename_candidates(self):
+        """收集可参与批量重命名的图片和标注文件。"""
         image_files = []
         json_files = []
 
-        # 扫描工作目录
-        for root, dirs, files in os.walk(self.work_directory):
+        for root, _, files in os.walk(self.work_directory):
             for file in files:
                 file_path = os.path.join(root, file)
+                lower_file = file.lower()
 
-                # 图片文件
-                if any(file.lower().endswith(ext) for ext in self.SUPPORTED_FORMATS):
+                if any(lower_file.endswith(ext) for ext in self.SUPPORTED_FORMATS):
                     image_files.append(file_path)
-                # JSON文件（排除系统文件）
-                elif (file.lower().endswith('.json') and
-                      file not in ['labels.json', 'labels_cache.json', 'keys_setting.json']):
+                elif lower_file.endswith('.json') and lower_file not in self.SYSTEM_JSON_FILES:
                     json_files.append(file_path)
 
-        # 按文件名排序，确保重命名顺序一致
-        image_files.sort()
-        json_files.sort()
+        image_files.sort(key=lambda path: os.path.normcase(path))
+        json_files.sort(key=lambda path: os.path.normcase(path))
+        return image_files, json_files
 
-        # 创建重命名映射
-        rename_map = {}  # 原文件名 -> 新文件名
+    def build_rename_plan(self) -> Dict[str, object]:
+        """生成批量重命名计划，不修改文件系统。"""
+        result = {
+            "image_ops": [],
+            "json_ops": [],
+            "skipped": [],
+            "warnings": [],
+            "errors": [],
+        }
 
-        # 重命名图片文件
+        if not self.work_directory:
+            result["errors"].append("未选择工作目录")
+            return result
+
+        image_files, json_files = self._collect_rename_candidates()
+        image_base_map = {}
+
         for i, old_path in enumerate(image_files):
             old_filename = os.path.basename(old_path)
-            old_name, ext = os.path.splitext(old_filename)
-
-            # 生成新文件名
-            new_filename = f"IMG_{i:06d}{ext}"
+            old_base, ext = os.path.splitext(old_filename)
+            new_base = f"IMG_{i:06d}"
+            new_filename = f"{new_base}{ext}"
             new_path = os.path.join(os.path.dirname(old_path), new_filename)
 
-            try:
-                # 如果新文件名与旧文件名相同，跳过
-                if old_filename == new_filename:
-                    continue
+            image_base_map[(os.path.normcase(os.path.dirname(old_path)), old_base.lower())] = {
+                "new_base": new_base,
+                "new_filename": new_filename,
+                "old_filename": old_filename,
+            }
 
-                # 如果目标文件已存在，跳过
-                if os.path.exists(new_path):
-                    print(f"目标文件已存在，跳过: {new_filename}")
-                    continue
+            if os.path.normcase(os.path.abspath(old_path)) == os.path.normcase(os.path.abspath(new_path)):
+                result["skipped"].append(f"图片已是目标名称: {old_filename}")
+                continue
 
-                # 重命名文件
-                os.rename(old_path, new_path)
-                rename_map[old_name] = f"IMG_{i:06d}"
-                renamed_count += 1
-                print(f"重命名图片: {old_filename} -> {new_filename}")
+            result["image_ops"].append({
+                "src": old_path,
+                "dst": new_path,
+                "old_filename": old_filename,
+                "new_filename": new_filename,
+            })
 
-            except Exception as e:
-                print(f"重命名图片失败 {old_filename}: {e}")
-
-        # 重命名对应的JSON文件并更新内容
         for json_path in json_files:
-            json_filename = os.path.basename(json_path)
-            json_name, _ = os.path.splitext(json_filename)
+            json_base, _ = os.path.splitext(os.path.basename(json_path))
+            key = (os.path.normcase(os.path.dirname(json_path)), json_base.lower())
+            image_match = image_base_map.get(key)
 
-            # 检查是否有对应的图片被重命名
-            if json_name in rename_map:
-                new_json_name = rename_map[json_name]
-                new_json_filename = f"{new_json_name}.json"
-                new_json_path = os.path.join(os.path.dirname(json_path), new_json_filename)
+            if not image_match:
+                result["warnings"].append(f"跳过无对应图片的JSON: {os.path.basename(json_path)}")
+                continue
 
+            new_json_path = os.path.join(os.path.dirname(json_path), f"{image_match['new_base']}.json")
+            if os.path.normcase(os.path.abspath(json_path)) == os.path.normcase(os.path.abspath(new_json_path)):
+                result["skipped"].append(f"JSON已是目标名称: {os.path.basename(json_path)}")
+                continue
+
+            result["json_ops"].append({
+                "src": json_path,
+                "dst": new_json_path,
+                "old_base": json_base,
+                "new_base": image_match["new_base"],
+                "old_image_filename": image_match["old_filename"],
+                "new_image_filename": image_match["new_filename"],
+            })
+
+        return result
+
+    def validate_rename_plan(self, plan: Dict[str, object]) -> Dict[str, object]:
+        """预检查重命名计划，发现高风险问题时写入errors。"""
+        source_paths = {
+            os.path.normcase(os.path.abspath(op["src"]))
+            for op in plan["image_ops"] + plan["json_ops"]
+        }
+        target_paths = {}
+
+        for op in plan["image_ops"] + plan["json_ops"]:
+            src = os.path.abspath(op["src"])
+            dst = os.path.abspath(op["dst"])
+            normalized_dst = os.path.normcase(dst)
+
+            if normalized_dst in target_paths:
+                plan["errors"].append(f"目标路径重复: {dst}")
+            target_paths[normalized_dst] = dst
+
+            if os.path.exists(dst) and normalized_dst not in source_paths:
+                plan["errors"].append(f"目标文件已存在: {dst}")
+
+            if os.path.normcase(src) == normalized_dst and src != dst:
+                plan["errors"].append(f"检测到仅大小写变化的重命名，已中止: {src} -> {dst}")
+
+        for op in plan["json_ops"]:
+            normalized_src = os.path.normcase(os.path.abspath(op["src"]))
+            normalized_dst = os.path.normcase(os.path.abspath(op["dst"]))
+            if normalized_dst in source_paths and normalized_dst != normalized_src:
+                plan["errors"].append(f"JSON目标是另一个待重命名源文件，已中止: {op['dst']}")
+
+            try:
+                with open(op["src"], 'r', encoding='utf-8') as f:
+                    json_data = json.load(f)
+            except Exception as e:
+                plan["errors"].append(f"JSON无法解析，已中止: {op['src']} ({e})")
+                continue
+
+            json_filename = json_data.get("filename")
+            if json_filename:
+                actual_filename = os.path.normcase(os.path.basename(json_filename))
+                expected_filename = os.path.normcase(op["old_image_filename"])
+                if actual_filename != expected_filename:
+                    plan["errors"].append(
+                        f"JSON配对关系不一致，已中止: {op['src']} "
+                        f"(filename={json_filename}, 期望={op['old_image_filename']})"
+                    )
+            else:
+                plan["warnings"].append(f"JSON缺少filename字段，将写入: {op['new_image_filename']}")
+
+        return plan
+
+    def _make_temp_path(self, path: str, token: str) -> str:
+        """生成同目录临时文件路径。"""
+        directory = os.path.dirname(path)
+        filename = os.path.basename(path)
+        return os.path.join(directory, f".__labelflow_tmp_{token}_{filename}")
+
+    def _write_json_atomic(self, target_path: str, data: Dict):
+        """原子写入JSON文件。"""
+        temp_path = self._make_temp_path(target_path, "json")
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, target_path)
+
+    def _rollback_image_moves(self, moves: List[Dict[str, str]], errors: List[str]):
+        """尽最大可能回滚图片重命名。"""
+        for move in reversed(moves):
+            current_path = move.get("current")
+            original_path = move.get("src")
+            if current_path and original_path and os.path.exists(current_path) and not os.path.exists(original_path):
                 try:
-                    # 读取JSON文件内容
-                    with open(json_path, 'r', encoding='utf-8') as f:
-                        json_data = json.load(f)
-
-                    # 更新filename字段
-                    if 'filename' in json_data:
-                        old_img_filename = json_data['filename']
-                        old_img_name, old_img_ext = os.path.splitext(old_img_filename)
-                        if old_img_name in rename_map:
-                            new_img_filename = f"{rename_map[old_img_name]}{old_img_ext}"
-                            json_data['filename'] = new_img_filename
-
-                    # 保存到新文件
-                    with open(new_json_path, 'w', encoding='utf-8') as f:
-                        json.dump(json_data, f, ensure_ascii=False, indent=2)
-
-                    # 删除旧文件
-                    os.remove(json_path)
-                    renamed_count += 1
-                    print(f"重命名JSON: {json_filename} -> {new_json_filename}")
-
+                    os.rename(current_path, original_path)
                 except Exception as e:
-                    print(f"重命名JSON文件失败 {json_filename}: {e}")
+                    errors.append(f"回滚失败: {current_path} -> {original_path} ({e})")
 
-        return renamed_count
+    def rename_all_images(self) -> Dict[str, object]:
+        """一键重命名所有图片文件，返回结构化执行结果。"""
+        result = {
+            "renamed": 0,
+            "skipped": [],
+            "warnings": [],
+            "errors": [],
+        }
+
+        plan = self.validate_rename_plan(self.build_rename_plan())
+        result["skipped"].extend(plan["skipped"])
+        result["warnings"].extend(plan["warnings"])
+
+        if plan["errors"]:
+            result["errors"].extend(plan["errors"])
+            return result
+
+        if not plan["image_ops"] and not plan["json_ops"]:
+            return result
+
+        token = str(os.getpid())
+        image_moves = []
+        json_backups = []
+
+        try:
+            # 图片使用两阶段rename，避免同目录目标名冲突。
+            for op in plan["image_ops"]:
+                temp_path = self._make_temp_path(op["src"], token)
+                os.rename(op["src"], temp_path)
+                image_moves.append({"src": op["src"], "dst": op["dst"], "current": temp_path})
+
+            for move in image_moves:
+                os.rename(move["current"], move["dst"])
+                move["current"] = move["dst"]
+                result["renamed"] += 1
+                print(f"重命名图片: {os.path.basename(move['src'])} -> {os.path.basename(move['dst'])}")
+
+            # JSON内容先原子写入新路径，成功后再删除旧路径。
+            for op in plan["json_ops"]:
+                with open(op["src"], 'r', encoding='utf-8') as f:
+                    json_data = json.load(f)
+
+                original_bytes = None
+                if os.path.exists(op["src"]):
+                    with open(op["src"], 'rb') as f:
+                        original_bytes = f.read()
+
+                json_data['filename'] = op["new_image_filename"]
+
+                self._write_json_atomic(op["dst"], json_data)
+                json_backups.append({
+                    "src": op["src"],
+                    "dst": op["dst"],
+                    "original_bytes": original_bytes,
+                })
+
+                if os.path.normcase(os.path.abspath(op["src"])) != os.path.normcase(os.path.abspath(op["dst"])):
+                    os.remove(op["src"])
+
+                result["renamed"] += 1
+                print(f"重命名JSON: {os.path.basename(op['src'])} -> {os.path.basename(op['dst'])}")
+
+        except Exception as e:
+            result["errors"].append(f"重命名执行失败: {e}")
+
+            for backup in reversed(json_backups):
+                try:
+                    if os.path.exists(backup["dst"]) and os.path.normcase(os.path.abspath(backup["dst"])) != os.path.normcase(os.path.abspath(backup["src"])):
+                        os.remove(backup["dst"])
+                    if backup["original_bytes"] is not None:
+                        with open(backup["src"], 'wb') as f:
+                            f.write(backup["original_bytes"])
+                except Exception as rollback_error:
+                    result["errors"].append(f"JSON回滚失败: {backup['src']} ({rollback_error})")
+
+            self._rollback_image_moves(image_moves, result["errors"])
+            result["renamed"] = 0
+
+        return result
 
     def set_compatibility_mode(self, enabled: bool):
         """设置兼容模式

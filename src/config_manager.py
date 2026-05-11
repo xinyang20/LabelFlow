@@ -35,13 +35,23 @@ class ConfigManager:
     def _get_config_path(self) -> str:
         """获取配置文件路径（兼容PyInstaller打包）"""
         if getattr(sys, 'frozen', False):
-            # 打包后的环境 - 配置文件在exe同级目录
+            # 打包后的环境 - 可写配置文件在exe同级目录
             base_dir = os.path.dirname(sys.executable)
         else:
             # 开发环境 - 配置文件在项目根目录
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         return os.path.join(base_dir, 'config.json')
+
+    def _get_bundled_config_path(self) -> Optional[str]:
+        """获取PyInstaller打包资源中的默认配置文件路径。"""
+        if not getattr(sys, 'frozen', False):
+            return None
+
+        bundled_config = os.path.join(getattr(sys, '_MEIPASS', ''), 'config.json')
+        if os.path.exists(bundled_config):
+            return bundled_config
+        return None
 
     def _get_old_config_path(self, filename: str) -> str:
         """获取旧配置文件路径"""
@@ -61,20 +71,24 @@ class ConfigManager:
         """加载配置文件"""
         try:
             # 尝试加载新配置文件
-            if os.path.exists(self.config_path):
-                with open(self.config_path, 'r', encoding='utf-8') as f:
+            bundled_config_path = self._get_bundled_config_path()
+            load_path = self.config_path if os.path.exists(self.config_path) else bundled_config_path
+
+            if load_path and os.path.exists(load_path):
+                with open(load_path, 'r', encoding='utf-8') as f:
                     self._config = json.load(f)
-                    print(f"配置文件加载成功: {self.config_path}")
+                    print(f"配置文件加载成功: {load_path}")
             else:
                 # 配置文件不存在，尝试从旧配置迁移
                 print("配置文件不存在，尝试从旧配置迁移...")
                 self._config = self._get_default_config()
                 self.migrate_from_old_configs()
-                self.save_config()
                 print("配置迁移完成，已保存新配置文件")
 
             # 验证配置
             self.validate_config()
+            if load_path != self.config_path or not os.path.exists(self.config_path):
+                self.save_config()
             return self._config
 
         except Exception as e:

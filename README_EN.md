@@ -76,7 +76,7 @@ JPG/JPEG, PNG, BMP, TIFF/TIF
 
 ## System Requirements
 
-- Python 3.8+
+- Python 3.12+
 - PyQt6
 - Pillow
 - psutil
@@ -84,7 +84,7 @@ JPG/JPEG, PNG, BMP, TIFF/TIF
 ## Build Release
 
 ```bash
-python build_spec.py
+uv run pyinstaller LabelFlow.spec --clean
 ```
 
 The executable file will be generated in `dist/LabelFlow.exe`

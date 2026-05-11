@@ -76,7 +76,7 @@ JPG/JPEG, PNG, BMP, TIFF/TIF
 
 ## 系统要求
 
-- Python 3.8+
+- Python 3.12+
 - PyQt6
 - Pillow
 - psutil
@@ -84,7 +84,7 @@ JPG/JPEG, PNG, BMP, TIFF/TIF
 ## 打包发布
 
 ```bash
-python build_spec.py
+uv run pyinstaller LabelFlow.spec --clean
 ```
 
 生成的可执行文件位于 `dist/LabelFlow.exe`

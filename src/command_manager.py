@@ -113,6 +113,41 @@ class LabelSelectCommand(Command):
         return f"选择标签 (图片#{self.image_index}): {self.new_labels}"
 
 
+class AnnotationStateCommand(Command):
+    """完整标注状态命令。
+
+    一次命令保存某张图片的完整标注JSON字符串，避免文本和标签状态
+    在撤销/重做时不同步。
+    """
+
+    def __init__(self, controller, image_index: int, old_annotation: str, new_annotation: str, description: str = "编辑标注"):
+        self.controller = controller
+        self.image_index = image_index
+        self.old_annotation = old_annotation or ""
+        self.new_annotation = new_annotation or ""
+        self.description = description
+
+    def execute(self):
+        """执行：应用新标注状态"""
+        self.controller.apply_annotation_state(
+            self.image_index,
+            self.new_annotation,
+            update_baseline=True,
+        )
+
+    def undo(self):
+        """撤销：恢复旧标注状态"""
+        self.controller.apply_annotation_state(
+            self.image_index,
+            self.old_annotation,
+            update_baseline=True,
+        )
+
+    def get_description(self) -> str:
+        """获取命令描述"""
+        return f"{self.description} (图片#{self.image_index})"
+
+
 class ImageSwitchCommand(Command):
     """图片切换命令"""
 
